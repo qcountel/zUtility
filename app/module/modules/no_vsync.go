@@ -44,7 +44,7 @@ type noVsync struct {
 	uiToggle     *modulesutil.M3Toggle
 }
 
-func (*noVsync) Name() string { return "NoVsync" }
+func (*noVsync) Name() string { return "OffVsync" }
 func (*noVsync) Description() string {
 	return "Force disables VSync."
 }
