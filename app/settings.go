@@ -172,10 +172,7 @@ func (app *App) ExportConfig(parent fyne.Window) {
 		settings := AppSettings{
 			Version:        "1.0",
 			MinimizeToTray: app.minimizeToTray,
-<<<<<<< HEAD
-=======
 			ShowHotkey:     app.showHotkey,
->>>>>>> 8756ae2 (Fix bugs)
 			Language:       normalizeLanguage(app.language),
 			Modules:        make([]ModuleConfig, 0, len(app.modules)),
 		}
@@ -240,10 +237,7 @@ func (app *App) ImportConfig(parent fyne.Window) {
 		}
 
 		app.minimizeToTray = settings.MinimizeToTray
-<<<<<<< HEAD
-=======
 		app.showHotkey = settings.ShowHotkey
->>>>>>> 8756ae2 (Fix bugs)
 		app.language = normalizeLanguage(settings.Language)
 
 		app.modulesMu.Lock()

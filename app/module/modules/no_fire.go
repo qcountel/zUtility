@@ -148,11 +148,7 @@ func (n *noFire) startLoop() {
 					}
 				}
 
-<<<<<<< HEAD
-				runtime.Gosched()
-=======
 				time.Sleep(1 * time.Millisecond)
->>>>>>> 8756ae2 (Fix bugs)
 			}
 		}
 	}()

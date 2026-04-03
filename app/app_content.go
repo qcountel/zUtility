@@ -137,15 +137,9 @@ func (app *App) buildHeader() fyne.CanvasObject {
 	launchBtn := widget.NewButtonWithIcon("", theme.MediaPlayIcon(), func() {
 		go func() {
 			cmd := exec.Command("cmd", "/C", "start", "minecraft:")
-<<<<<<< HEAD
-			if err := cmd.Start(); err != nil {
-				exec.Command("explorer.exe",
-					`shell:AppsFolder\Microsoft.MinecraftUWP_8wekyb3d8bbwe!App`).Start()
-=======
 			if err := cmd.Run(); err != nil {
 				_ = exec.Command("explorer.exe",
 					`shell:AppsFolder\Microsoft.MinecraftUWP_8wekyb3d8bbwe!App`).Run()
->>>>>>> 8756ae2 (Fix bugs)
 			}
 		}()
 	})

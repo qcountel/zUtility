@@ -1,10 +1,7 @@
 package app
 
 import (
-<<<<<<< HEAD
-=======
 	"sync"
->>>>>>> 8756ae2 (Fix bugs)
 	"time"
 
 	"fyne.io/fyne/v2"
@@ -69,10 +66,7 @@ func cubicBezier(t, p1x, p1y, p2x, p2y float64) float64 {
 
 type M3AnimatedButton struct {
 	widget.Button
-<<<<<<< HEAD
-=======
 	mu          sync.Mutex
->>>>>>> 8756ae2 (Fix bugs)
 	pressing    bool
 	pressScale  float32
 	rippleAlpha float32
@@ -94,19 +88,6 @@ func NewM3AnimatedButton(text string, onTapped func()) *M3AnimatedButton {
 }
 
 func (b *M3AnimatedButton) animatePress() {
-<<<<<<< HEAD
-	if b.pressing {
-		return
-	}
-	b.pressing = true
-
-	M3Animate(M3DurationShort2, EmphasizedEasing, func(p float64) {
-		b.pressScale = 1.0 - float32(p)*0.08
-		canvas.Refresh(b)
-	})
-	M3Animate(M3DurationMedium2, EmphasizedDecelerateEasing, func(p float64) {
-		b.rippleAlpha = float32(0.3 * (1 - p))
-=======
 	b.mu.Lock()
 	if b.pressing {
 		b.mu.Unlock()
@@ -125,17 +106,10 @@ func (b *M3AnimatedButton) animatePress() {
 		b.mu.Lock()
 		b.rippleAlpha = float32(0.3 * (1 - p))
 		b.mu.Unlock()
->>>>>>> 8756ae2 (Fix bugs)
 		canvas.Refresh(b)
 	})
 	time.AfterFunc(M3Duration(M3DurationShort2), func() {
 		M3Animate(M3DurationMedium1, EmphasizedEasing, func(p float64) {
-<<<<<<< HEAD
-			b.pressScale = 0.92 + float32(p)*0.08
-			canvas.Refresh(b)
-		})
-		b.pressing = false
-=======
 			b.mu.Lock()
 			b.pressScale = 0.92 + float32(p)*0.08
 			b.mu.Unlock()
@@ -144,7 +118,6 @@ func (b *M3AnimatedButton) animatePress() {
 		b.mu.Lock()
 		b.pressing = false
 		b.mu.Unlock()
->>>>>>> 8756ae2 (Fix bugs)
 	})
 }
 

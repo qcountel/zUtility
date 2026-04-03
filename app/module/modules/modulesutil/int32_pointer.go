@@ -49,15 +49,10 @@ func (m *Int32PointerModule) CreateObjects() []fyne.CanvasObject {
 		v, err = m.initialRead()
 		if err != nil {
 			v = m.Default
-<<<<<<< HEAD
-			m.Error(fmt.Errorf("initial read: %w", err))
-		}
-=======
 			if m.Error != nil {
 			m.Error(fmt.Errorf("initial read: %w", err))
 		}
 		}
->>>>>>> 8756ae2 (Fix bugs)
 		m.currentValue = v
 		m.initialized = true
 	}
@@ -182,13 +177,9 @@ func (m *Int32PointerModule) Enable() {
 		m.uiToggle.SetChecked(true)
 	}
 	if err := m.nopSignature(); err != nil {
-<<<<<<< HEAD
-		m.Error(fmt.Errorf("enable: nop signature: %w", err))
-=======
 		if m.Error != nil {
 			m.Error(fmt.Errorf("enable: nop signature: %w", err))
 		}
->>>>>>> 8756ae2 (Fix bugs)
 		return
 	}
 	m.write(m.currentValue)
@@ -200,13 +191,9 @@ func (m *Int32PointerModule) Disable() {
 		m.uiToggle.SetChecked(false)
 	}
 	if err := m.restoreSignature(); err != nil {
-<<<<<<< HEAD
-		m.Error(fmt.Errorf("disable: restore signature: %w", err))
-=======
 		if m.Error != nil {
 			m.Error(fmt.Errorf("disable: restore signature: %w", err))
 		}
->>>>>>> 8756ae2 (Fix bugs)
 	}
 }
 
@@ -239,24 +226,16 @@ func (m *Int32PointerModule) SetValue(val float64) {
 func (m *Int32PointerModule) write(val float64) {
 	addr, err := m.resolveAddress()
 	if err != nil {
-<<<<<<< HEAD
-		m.Error(fmt.Errorf("write %g: %w", val, err))
-=======
 		if m.Error != nil {
 			m.Error(fmt.Errorf("write %g: %w", val, err))
 		}
->>>>>>> 8756ae2 (Fix bugs)
 		return
 	}
 	toWrite := m.SliderToMemory(val)
 	if err = win.WriteMemory[int32](m.Process, addr, toWrite); err != nil {
-<<<<<<< HEAD
-		m.Error(fmt.Errorf("write %g: write memory: %w", val, err))
-=======
 		if m.Error != nil {
 			m.Error(fmt.Errorf("write %g: write memory: %w", val, err))
 		}
->>>>>>> 8756ae2 (Fix bugs)
 	}
 }
 

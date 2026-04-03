@@ -34,13 +34,9 @@ func (m *FloatPointerModule) CreateObjects() []fyne.CanvasObject {
 	v, err := m.initialRead()
 	if err != nil {
 		v = m.Default
-<<<<<<< HEAD
-		m.Error(fmt.Errorf("initial read: %w", err))
-=======
 		if m.Error != nil {
 			m.Error(fmt.Errorf("initial read: %w", err))
 		}
->>>>>>> 8756ae2 (Fix bugs)
 	} else {
 		m.Default = v
 	}
@@ -154,24 +150,16 @@ func (m *FloatPointerModule) SetValue(val float64) {
 func (m *FloatPointerModule) write(val float64) {
 	addr, err := m.resolveAddress()
 	if err != nil {
-<<<<<<< HEAD
-		m.Error(fmt.Errorf("write %g: %w", val, err))
-=======
 		if m.Error != nil {
 			m.Error(fmt.Errorf("write %g: %w", val, err))
 		}
->>>>>>> 8756ae2 (Fix bugs)
 		return
 	}
 	toWrite := m.SliderToMemory(val)
 	if err = win.WriteMemory[float32](m.Process, addr, toWrite); err != nil {
-<<<<<<< HEAD
-		m.Error(fmt.Errorf("write %g: write memory: %w", val, err))
-=======
 		if m.Error != nil {
 			m.Error(fmt.Errorf("write %g: write memory: %w", val, err))
 		}
->>>>>>> 8756ae2 (Fix bugs)
 	}
 }
 
