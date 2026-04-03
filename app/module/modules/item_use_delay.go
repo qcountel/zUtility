@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 ﻿package modules
+=======
+package modules
+>>>>>>> 8756ae2 (Fix bugs)
 
 import (
 	"errors"
@@ -66,7 +70,14 @@ func (i *itemUseDelay) CreateObjects() []fyne.CanvasObject {
 			}
 			return
 		}
+<<<<<<< HEAD
 		if !enabled && !i.originalKnown {
+=======
+		i.mu.Lock()
+		knownOrig := i.originalKnown
+		i.mu.Unlock()
+		if !enabled && !knownOrig {
+>>>>>>> 8756ae2 (Fix bugs)
 			if i.errFn != nil {
 				i.errFn(errors.New("item_use_delay: cannot disable, original bytes unknown"))
 			}
@@ -140,12 +151,20 @@ func (i *itemUseDelay) IsEnabled() bool { return i.wantEnabled }
 
 func (i *itemUseDelay) lazyToggler() (*win.ByteToggler, error) {
 	i.mu.Lock()
+<<<<<<< HEAD
 	if i.toggler != nil {
 		t := i.toggler
 		i.mu.Unlock()
 		return t, nil
 	}
 	i.mu.Unlock()
+=======
+	defer i.mu.Unlock()
+
+	if i.toggler != nil {
+		return i.toggler, nil
+	}
+>>>>>>> 8756ae2 (Fix bugs)
 
 	addr, patched, err := findItemUseDelayAddr(i.process)
 	if err != nil {
@@ -182,9 +201,13 @@ func (i *itemUseDelay) lazyToggler() (*win.ByteToggler, error) {
 		t.SetState(true)
 	}
 
+<<<<<<< HEAD
 	i.mu.Lock()
 	i.toggler = t
 	i.mu.Unlock()
+=======
+	i.toggler = t
+>>>>>>> 8756ae2 (Fix bugs)
 	return t, nil
 }
 

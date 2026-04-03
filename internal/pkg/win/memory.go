@@ -95,12 +95,17 @@ func ScanSignature(p *Process, size, base uintptr, pattern []byte) (uintptr, err
 	return 0, errors.New("signature not found in module memory")
 }
 
+<<<<<<< HEAD
 func withUnlockedPageProtection(handle w.Handle, addr, size uintptr, do func() error) error {
+=======
+func withUnlockedPageProtection(handle w.Handle, addr, size uintptr, do func() error) (err error) {
+>>>>>>> 8756ae2 (Fix bugs)
 	if size == 0 {
 		return errors.New("empty memory operation")
 	}
 
 	var oldProtect uint32
+<<<<<<< HEAD
 	if err := w.VirtualProtectEx(handle, addr, size, w.PAGE_EXECUTE_READWRITE, &oldProtect); err != nil {
 		return fmt.Errorf("virtual protect unlock: %w", err)
 	}
@@ -118,6 +123,21 @@ func withUnlockedPageProtection(handle w.Handle, addr, size uintptr, do func() e
 		return opErr
 	}
 	return restoreErr
+=======
+	if err = w.VirtualProtectEx(handle, addr, size, w.PAGE_EXECUTE_READWRITE, &oldProtect); err != nil {
+		return fmt.Errorf("virtual protect unlock: %w", err)
+	}
+
+	defer func() {
+		var tmp uint32
+		if rerr := w.VirtualProtectEx(handle, addr, size, oldProtect, &tmp); rerr != nil && err == nil {
+			err = fmt.Errorf("virtual protect restore: %w", rerr)
+		}
+	}()
+
+	err = do()
+	return
+>>>>>>> 8756ae2 (Fix bugs)
 }
 
 func isReadableRegion(info w.MemoryBasicInformation) bool {

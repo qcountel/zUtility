@@ -191,6 +191,10 @@ func CaptureGamepadButton(doneCh <-chan struct{}) (uint32, bool) {
 							return 0, false
 						default:
 						}
+<<<<<<< HEAD
+=======
+						time.Sleep(8 * time.Millisecond)
+>>>>>>> 8756ae2 (Fix bugs)
 						s2, ok2 := xinputGetState(idx)
 						if !ok2 || s2.Gamepad.Buttons&mask == 0 {
 							break
@@ -207,6 +211,10 @@ func CaptureGamepadButton(doneCh <-chan struct{}) (uint32, bool) {
 						return 0, false
 					default:
 					}
+<<<<<<< HEAD
+=======
+					time.Sleep(8 * time.Millisecond)
+>>>>>>> 8756ae2 (Fix bugs)
 					s2, ok2 := xinputGetState(idx)
 					if !ok2 || s2.Gamepad.LeftTrigger <= gpTriggerThreshold {
 						break
@@ -221,6 +229,10 @@ func CaptureGamepadButton(doneCh <-chan struct{}) (uint32, bool) {
 						return 0, false
 					default:
 					}
+<<<<<<< HEAD
+=======
+					time.Sleep(8 * time.Millisecond)
+>>>>>>> 8756ae2 (Fix bugs)
 					s2, ok2 := xinputGetState(idx)
 					if !ok2 || s2.Gamepad.RightTrigger <= gpTriggerThreshold {
 						break

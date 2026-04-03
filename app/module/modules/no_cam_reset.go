@@ -68,7 +68,14 @@ func (n *noCamReset) CreateObjects() []fyne.CanvasObject {
 			}
 			return
 		}
+<<<<<<< HEAD
 		if !b && !n.originalKnown {
+=======
+		n.mu.Lock()
+		knownOrig := n.originalKnown
+		n.mu.Unlock()
+		if !b && !knownOrig {
+>>>>>>> 8756ae2 (Fix bugs)
 			if n.errFn != nil {
 				n.errFn(errors.New("no_cam_reset: cannot disable, original bytes unknown"))
 			}
@@ -142,12 +149,20 @@ func (n *noCamReset) IsEnabled() bool { return n.wantEnabled }
 
 func (n *noCamReset) lazyToggler() (*win.ByteToggler, error) {
 	n.mu.Lock()
+<<<<<<< HEAD
 	if n.toggler != nil {
 		t := n.toggler
 		n.mu.Unlock()
 		return t, nil
 	}
 	n.mu.Unlock()
+=======
+	defer n.mu.Unlock()
+
+	if n.toggler != nil {
+		return n.toggler, nil
+	}
+>>>>>>> 8756ae2 (Fix bugs)
 
 	addr, patched, err := findNoCamResetAddr(n.process)
 	if err != nil {
@@ -183,9 +198,13 @@ func (n *noCamReset) lazyToggler() (*win.ByteToggler, error) {
 		t.SetState(true)
 	}
 
+<<<<<<< HEAD
 	n.mu.Lock()
 	n.toggler = t
 	n.mu.Unlock()
+=======
+	n.toggler = t
+>>>>>>> 8756ae2 (Fix bugs)
 	return t, nil
 }
 
@@ -218,6 +237,7 @@ func scanSignatureMasked(p *win.Process, base, size uintptr, pattern []byte, mas
 	if len(pattern) != len(mask) {
 		return 0, errors.New("pattern/mask length mismatch")
 	}
+<<<<<<< HEAD
 	moduleData := make([]byte, size)
 	var bytesRead uintptr
 
@@ -237,6 +257,44 @@ func scanSignatureMasked(p *win.Process, base, size uintptr, pattern []byte, mas
 		}
 		if match {
 			return base + uintptr(i), nil
+=======
+
+	const chunkSize uintptr = 1 << 20 // 1 MB
+	patLen := uintptr(len(pattern))
+	end := base + size
+
+	for chunkStart := base; chunkStart < end; chunkStart += chunkSize {
+		readSize := chunkSize
+		if chunkStart+readSize > end {
+			readSize = end - chunkStart
+		}
+		// Overlap with next chunk so patterns on boundaries are found
+		overlapSize := readSize
+		if chunkStart+overlapSize+patLen-1 <= end {
+			overlapSize = readSize + patLen - 1
+		}
+
+		buf := make([]byte, overlapSize)
+		var bytesRead uintptr
+		err := w.ReadProcessMemory(p.Handle, chunkStart, &buf[0], overlapSize, &bytesRead)
+		if err != nil && bytesRead == 0 {
+			continue
+		}
+		buf = buf[:bytesRead]
+
+		max := int(bytesRead) - len(pattern)
+		for i := 0; i <= max; i++ {
+			match := true
+			for j := 0; j < len(pattern); j++ {
+				if mask[j] && buf[i+j] != pattern[j] {
+					match = false
+					break
+				}
+			}
+			if match {
+				return chunkStart + uintptr(i), nil
+			}
+>>>>>>> 8756ae2 (Fix bugs)
 		}
 	}
 	return 0, errors.New("signature not found")

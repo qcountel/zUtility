@@ -156,8 +156,13 @@ func minimizeFullscreenWindow(ourHwnd uintptr) bool {
 
 func (app *App) toggleWindowVisibility() {
 	app.winMu.Lock()
+<<<<<<< HEAD
 	defer app.winMu.Unlock()
 	if app.win == nil {
+=======
+	if app.win == nil {
+		app.winMu.Unlock()
+>>>>>>> 8756ae2 (Fix bugs)
 		return
 	}
 
@@ -165,6 +170,10 @@ func (app *App) toggleWindowVisibility() {
 	if hwnd == 0 {
 		app.win.Show()
 		app.win.RequestFocus()
+<<<<<<< HEAD
+=======
+		app.winMu.Unlock()
+>>>>>>> 8756ae2 (Fix bugs)
 		return
 	}
 
@@ -172,6 +181,7 @@ func (app *App) toggleWindowVisibility() {
 	visible := isHWNDVisible(hwnd)
 
 	if visible && fgHwnd == hwnd {
+<<<<<<< HEAD
 
 		app.win.Hide()
 	} else {
@@ -179,6 +189,13 @@ func (app *App) toggleWindowVisibility() {
 		minimized := minimizeFullscreenWindow(hwnd)
 		if minimized {
 
+=======
+		app.win.Hide()
+		app.winMu.Unlock()
+	} else {
+		minimized := minimizeFullscreenWindow(hwnd)
+		if minimized {
+>>>>>>> 8756ae2 (Fix bugs)
 			app.winMu.Unlock()
 			time.Sleep(150 * time.Millisecond)
 			app.winMu.Lock()
@@ -188,6 +205,10 @@ func (app *App) toggleWindowVisibility() {
 		procShowWindowAPI.Call(hwnd, swShowNormal)
 		procSetForegroundWindowAPI.Call(hwnd)
 		app.win.RequestFocus()
+<<<<<<< HEAD
+=======
+		app.winMu.Unlock()
+>>>>>>> 8756ae2 (Fix bugs)
 	}
 }
 
