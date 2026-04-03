@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"fyne.io/fyne/v2"
-	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/widget"
 )
 
@@ -66,59 +65,22 @@ func cubicBezier(t, p1x, p1y, p2x, p2y float64) float64 {
 
 type M3AnimatedButton struct {
 	widget.Button
-	mu          sync.Mutex
-	pressing    bool
-	pressScale  float32
-	rippleAlpha float32
+	mu       sync.Mutex
+	pressing bool
 }
 
 func NewM3AnimatedButton(text string, onTapped func()) *M3AnimatedButton {
 	btn := &M3AnimatedButton{
-		Button:     widget.Button{Text: text},
-		pressScale: 1.0,
+		Button: widget.Button{Text: text},
 	}
 	btn.ExtendBaseWidget(btn)
+	// Вызываем onTapped сразу — кнопка работает корректно без анимации
 	btn.OnTapped = func() {
-		btn.animatePress()
 		if onTapped != nil {
-			time.AfterFunc(M3Duration(M3DurationShort2)/2, onTapped)
+			onTapped()
 		}
 	}
 	return btn
-}
-
-func (b *M3AnimatedButton) animatePress() {
-	b.mu.Lock()
-	if b.pressing {
-		b.mu.Unlock()
-		return
-	}
-	b.pressing = true
-	b.mu.Unlock()
-
-	M3Animate(M3DurationShort2, EmphasizedEasing, func(p float64) {
-		b.mu.Lock()
-		b.pressScale = 1.0 - float32(p)*0.08
-		b.mu.Unlock()
-		canvas.Refresh(b)
-	})
-	M3Animate(M3DurationMedium2, EmphasizedDecelerateEasing, func(p float64) {
-		b.mu.Lock()
-		b.rippleAlpha = float32(0.3 * (1 - p))
-		b.mu.Unlock()
-		canvas.Refresh(b)
-	})
-	time.AfterFunc(M3Duration(M3DurationShort2), func() {
-		M3Animate(M3DurationMedium1, EmphasizedEasing, func(p float64) {
-			b.mu.Lock()
-			b.pressScale = 0.92 + float32(p)*0.08
-			b.mu.Unlock()
-			canvas.Refresh(b)
-		})
-		b.mu.Lock()
-		b.pressing = false
-		b.mu.Unlock()
-	})
 }
 
 func (b *M3AnimatedButton) MinSize() fyne.Size {

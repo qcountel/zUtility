@@ -35,9 +35,13 @@ func EnsureSingleInstance(windowTitle string) (alreadyRunning bool, cleanup func
 	)
 
 	if handle == 0 {
-
-		focusWindow(windowTitle)
-		return true, func() {}
+		// Only treat as "already running" if the mutex truly exists
+		if windows.Errno(lastErr.(windows.Errno)) == windows.ERROR_ALREADY_EXISTS {
+			focusWindow(windowTitle)
+			return true, func() {}
+		}
+		// Real system error — let the application run normally
+		return false, func() {}
 	}
 
 	if windows.Errno(lastErr.(windows.Errno)) == windows.ERROR_ALREADY_EXISTS {
@@ -54,9 +58,6 @@ func EnsureSingleInstance(windowTitle string) (alreadyRunning bool, cleanup func
 }
 
 func focusWindow(title string) {
-	target, _ := windows.UTF16PtrFromString(title)
-	_ = target
-
 	cb := windows.NewCallback(func(hwnd uintptr, _ uintptr) uintptr {
 		var buf [512]uint16
 		procGetWindowTextW2.Call(hwnd, uintptr(unsafe.Pointer(&buf[0])), 512)

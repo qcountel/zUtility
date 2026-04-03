@@ -183,7 +183,7 @@ func (app *App) toggleWindowVisibility() {
 			app.winMu.Lock()
 		}
 		app.win.Show()
-		app.win.Resize(fyne.NewSize(520, 720))
+		app.win.Resize(fyne.NewSize(660, 720))
 		procShowWindowAPI.Call(hwnd, swShowNormal)
 		procSetForegroundWindowAPI.Call(hwnd)
 		app.win.RequestFocus()

@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"image/color"
-	"math"
 	"time"
 
 	"fyne.io/fyne/v2"
@@ -15,118 +14,13 @@ import (
 	"github.com/something-that-is-cool/zutil/app/module/modules/modulesutil"
 )
 
-func (app *App) ShowSettings() {
-	app.animateToSettings()
-}
-
-func (app *App) HideSettings() {
-	if app.win == nil {
-		return
-	}
-
-	current := app.win.Content()
-	overlay := canvas.NewRectangle(color.NRGBA{R: 0x08, G: 0x05, B: 0x05, A: 0x00})
-	app.win.SetContent(container.NewStack(current, overlay))
-
-	go func() {
-		const dur1 = 180 * time.Millisecond
-		start := time.Now()
-		ticker := time.NewTicker(14 * time.Millisecond)
-		for range ticker.C {
-			p := math.Min(1.0, float64(time.Since(start))/float64(dur1))
-			a := uint8(255 * (p * p))
-			fyne.Do(func() {
-				overlay.FillColor = color.NRGBA{R: 0x08, G: 0x05, B: 0x05, A: a}
-				overlay.Refresh()
-			})
-			if p >= 1 {
-				break
-			}
-		}
-		ticker.Stop()
-
-		app.showSettings = false
-		fyne.Do(func() {
-			nc, _, _ := app.createContent(app.tr.Process())
-			newOverlay := canvas.NewRectangle(color.NRGBA{R: 0x08, G: 0x05, B: 0x05, A: 0xFF})
-			app.win.SetContent(container.NewStack(nc, newOverlay))
-			app.win.Resize(fyne.NewSize(520, 720))
-
-			go func() {
-				const dur2 = 220 * time.Millisecond
-				start2 := time.Now()
-				t2 := time.NewTicker(14 * time.Millisecond)
-				defer t2.Stop()
-				for range t2.C {
-					p := math.Min(1.0, float64(time.Since(start2))/float64(dur2))
-					ease := 1 - math.Pow(1-p, 3)
-					a := uint8(255 * (1 - ease))
-					fyne.Do(func() {
-						newOverlay.FillColor = color.NRGBA{R: 0x08, G: 0x05, B: 0x05, A: a}
-						newOverlay.Refresh()
-						if p >= 1 {
-							newOverlay.Hide()
-						}
-					})
-					if p >= 1 {
-						break
-					}
-				}
-			}()
-		})
-	}()
-}
-
 func (app *App) createSettingsContent() fyne.CanvasObject {
-	backBtn := widget.NewButton(app.t("← Назад", "← Back"), func() {
-		app.HideSettings()
-	})
-	backBtn.Importance = widget.LowImportance
-
-	titleText := ctxt(app.t("Настройки", "Settings"), textPrimary, 26)
+	titleText := ctxt(app.t("Настройки", "Settings"), textPrimary, 18)
 	titleText.TextStyle = fyne.TextStyle{Bold: true}
 
 	titleAccent := canvas.NewRectangle(accentRed)
-	titleAccent.SetMinSize(fyne.NewSize(40, 2))
+	titleAccent.SetMinSize(fyne.NewSize(36, 2))
 	titleAccent.CornerRadius = 1
-
-	headerInner := container.NewVBox(
-		container.NewHBox(backBtn),
-		container.New(layout.NewCustomPaddedLayout(4, 2, 0, 0), titleText),
-		container.New(layout.NewCustomPaddedLayout(0, 6, 0, 0), titleAccent),
-	)
-
-	headerBg := canvas.NewRectangle(bgCard)
-	sepLine := canvas.NewRectangle(borderRed)
-	sepLine.SetMinSize(fyne.NewSize(0, 1))
-
-	headerPadded := container.New(layout.NewCustomPaddedLayout(10, 10, 14, 14), headerInner)
-	headerContent := container.NewBorder(nil, sepLine, nil, nil, headerPadded)
-	header := container.NewStack(headerBg, headerContent)
-
-	configSection := createSettingsSection(
-		app.t("Конфигурация", "Configuration"),
-		container.NewVBox(
-			createSettingsBtn(app.t("Экспорт конфигурации", "Export configuration"), accentRed, func() {
-				w := app.app.NewWindow(app.t("Экспорт", "Export"))
-				w.Resize(fyne.NewSize(400, 300))
-				app.ExportConfig(w)
-				w.Show()
-			}),
-			createSettingsBtn(app.t("Импорт конфигурации", "Import configuration"), accentRedBright, func() {
-				w := app.app.NewWindow(app.t("Импорт", "Import"))
-				w.Resize(fyne.NewSize(400, 300))
-				app.ImportConfig(w)
-				w.Show()
-			}),
-			createSettingsBtn(app.t("Сбросить настройки", "Reset settings"), accentOrange, func() {
-				w := app.app.NewWindow(app.t("Сброс", "Reset"))
-				w.Resize(fyne.NewSize(300, 200))
-				app.ResetConfig(w)
-				w.Show()
-			}),
-		),
-	)
 
 	trayToggle := modulesutil.NewM3Toggle(app.minimizeToTray)
 	trayToggle.OnChange = func(checked bool) {
@@ -260,7 +154,7 @@ func (app *App) createSettingsContent() fyne.CanvasObject {
 		if app.win != nil {
 			nc, _, _ := app.createContent(app.tr.Process())
 			app.win.SetContent(nc)
-			app.win.Resize(fyne.NewSize(520, 720))
+			app.win.SetFixedSize(true) // переустанавливаем после SetContent — без изменения размера
 		}
 	}
 
@@ -296,13 +190,23 @@ func (app *App) createSettingsContent() fyne.CanvasObject {
 	}
 	aboutSection := createSettingsSection(app.t("О приложении", "About"), container.NewVBox(aboutLines...))
 
-	mainContent := container.NewVBox(header, configSection, systemSection, aboutSection)
+	header := container.NewVBox(
+		container.New(layout.NewCustomPaddedLayout(16, 4, 14, 14), titleText),
+		container.New(layout.NewCustomPaddedLayout(0, 10, 14, 14),
+			container.New(layout.NewCustomPaddedLayout(0, 0, 0, 0), titleAccent)),
+	)
+
+	mainContent := container.NewVBox(header, systemSection, aboutSection)
 	bg := canvas.NewRectangle(bgPrimary)
 	scroll := container.NewVScroll(mainContent)
 	return container.NewStack(bg, scroll)
 }
-func createSettingsSection(title string, content fyne.CanvasObject) fyne.CanvasObject {
 
+func createSettingsSection(title string, content fyne.CanvasObject) fyne.CanvasObject {
+	return createSettingsSectionObj(title, content)
+}
+
+func createSettingsSectionObj(title string, content fyne.CanvasObject) fyne.CanvasObject {
 	dot := canvas.NewRectangle(accentRed)
 	dot.SetMinSize(fyne.NewSize(3, 14))
 	dot.CornerRadius = 2
@@ -335,9 +239,6 @@ func createSettingsBtn(text string, labelColor color.NRGBA, onTap func()) fyne.C
 
 	bg := canvas.NewRectangle(calpha(labelColor, 0x18))
 	bg.CornerRadius = 8
-
-	lbl := ctxt(text, labelColor, 12)
-	lbl.TextStyle = fyne.TextStyle{Bold: true}
 
 	return container.New(layout.NewCustomPaddedLayout(2, 2, 4, 4),
 		container.NewStack(bg, btn),

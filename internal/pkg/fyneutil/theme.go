@@ -18,41 +18,42 @@ func hex(r, g, b uint8) color.NRGBA {
 func (t *CrimsonDarkTheme) Color(name fyne.ThemeColorName, variant fyne.ThemeVariant) color.Color {
 	switch name {
 	case theme.ColorNameBackground:
-		return hex(0x08, 0x08, 0x08)
+		return hex(0x0F, 0x0F, 0x12) // фон как в HTML #0f0f12
 	case theme.ColorNameButton:
-		return hex(0x14, 0x0A, 0x0A)
+		return hex(0x1C, 0x1C, 0x1C)
 	case theme.ColorNameDisabledButton:
-		return hex(0x14, 0x0A, 0x0A)
+		return hex(0x1C, 0x1C, 0x1C)
 	case theme.ColorNameOverlayBackground:
-		return color.NRGBA{R: 0x08, G: 0x04, B: 0x04, A: 0xF2}
+		return color.NRGBA{R: 0x12, G: 0x12, B: 0x12, A: 0xF2}
 	case theme.ColorNameMenuBackground:
-		return hex(0x11, 0x08, 0x08)
+		return hex(0x1C, 0x1C, 0x1C)
 	case theme.ColorNameHeaderBackground:
-		return hex(0x11, 0x08, 0x08)
+		return hex(0x1C, 0x1C, 0x1C)
 	case theme.ColorNameInputBackground:
-		return hex(0x16, 0x0C, 0x0C)
+		return hex(0x22, 0x22, 0x22)
 	case theme.ColorNameForeground:
-		return hex(0xF0, 0xF0, 0xF0)
+		return hex(0xE0, 0xE0, 0xE0)
 	case theme.ColorNameDisabled:
-		return color.NRGBA{R: 0x55, G: 0x44, B: 0x44, A: 0xFF}
+		return color.NRGBA{R: 0x50, G: 0x50, B: 0x50, A: 0xFF}
 	case theme.ColorNamePrimary:
-		return hex(0xCC, 0x22, 0x22)
+		return hex(0xCC, 0x33, 0x33)
 	case theme.ColorNameFocus:
-		return hex(0xCC, 0x22, 0x22)
+		return hex(0xCC, 0x33, 0x33)
 	case theme.ColorNameHyperlink:
-		return hex(0xE5, 0x44, 0x44)
+		return hex(0xFF, 0x55, 0x55)
 	case theme.ColorNameHover:
-		return color.NRGBA{R: 0xCC, G: 0x22, B: 0x22, A: 0x22}
+		// ОЧЕНЬ тихий hover — почти невидимый белый оверлей (4%)
+		return color.NRGBA{R: 0xFF, G: 0xFF, B: 0xFF, A: 0x0A}
 	case theme.ColorNamePressed:
-		return color.NRGBA{R: 0xCC, G: 0x22, B: 0x22, A: 0x35}
+		return color.NRGBA{R: 0xCC, G: 0x33, B: 0x33, A: 0x22}
 	case theme.ColorNameSelection:
-		return color.NRGBA{R: 0xCC, G: 0x22, B: 0x22, A: 0x45}
+		return color.NRGBA{R: 0xCC, G: 0x33, B: 0x33, A: 0x40}
 	case theme.ColorNameInputBorder:
-		return hex(0x28, 0x18, 0x18)
+		return hex(0x30, 0x30, 0x30)
 	case theme.ColorNameSeparator:
-		return hex(0x22, 0x14, 0x14)
+		return hex(0x28, 0x28, 0x28)
 	case theme.ColorNameScrollBar:
-		return color.NRGBA{R: 0xCC, G: 0x22, B: 0x22, A: 0x50}
+		return color.NRGBA{R: 0xFF, G: 0xFF, B: 0xFF, A: 0x00} // полностью прозрачный
 	case theme.ColorNameShadow:
 		return color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x90}
 	case theme.ColorNameSuccess:
@@ -88,9 +89,9 @@ func (t *CrimsonDarkTheme) Size(name fyne.ThemeSizeName) float32 {
 	case theme.SizeNameInputBorder:
 		return 1
 	case theme.SizeNameScrollBar:
-		return 3
+		return 0
 	case theme.SizeNameScrollBarSmall:
-		return 2
+		return 0
 	case theme.SizeNameSeparatorThickness:
 		return 1
 	}

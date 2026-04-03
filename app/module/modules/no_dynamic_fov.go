@@ -31,5 +31,5 @@ type noDynamicFov struct {
 
 func (*noDynamicFov) Name() string { return "NoDynamicFov" }
 func (*noDynamicFov) Description() string {
-	return "Отключает изменение FOV при спринте и получении урона."
+	return "Отключает изменение FOV при спринте."
 }

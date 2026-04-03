@@ -38,7 +38,7 @@ type App struct {
 	modulesMu sync.Mutex
 
 	minimizeToTray bool
-	showSettings   bool
+	activeTab      int // 0=modules, 1=configs, 2=settings
 	showHotkey     uint32
 	language       string
 }
@@ -55,7 +55,7 @@ func (app *App) init(proc *win.Process) ([]module.Module, error) {
 	app.win = a.NewWindow(Name)
 	app.win.SetMaster()
 	app.win.CenterOnScreen()
-	app.win.Resize(fyne.NewSize(520, 720))
+	app.win.Resize(fyne.NewSize(660, 720))
 	app.win.SetFixedSize(true)
 
 	if icon, err := embeddable.LoadIcon(); err == nil {
@@ -83,6 +83,7 @@ func (app *App) init(proc *win.Process) ([]module.Module, error) {
 		return nil, fmt.Errorf("create content: %w", err)
 	}
 	app.win.SetContent(c)
+	app.win.SetFixedSize(true) // переустанавливаем после SetContent
 	return modules, nil
 }
 
@@ -94,7 +95,7 @@ func (app *App) updateTrayMenu() {
 	menu := fyne.NewMenu("zUtility",
 		fyne.NewMenuItem(app.t("Показать", "Show"), func() {
 			app.win.Show()
-			app.win.Resize(fyne.NewSize(520, 720))
+			app.win.Resize(fyne.NewSize(660, 720))
 		}),
 		fyne.NewMenuItem(app.t("Скрыть", "Hide"), func() {
 			app.win.Hide()
@@ -131,11 +132,12 @@ func (app *App) Run() error {
 	if err := app.LoadConfig(); err != nil {
 		app.conf.Logger.Error("failed to load config", "err", err)
 	}
-	app.updateTrayMenu()
+	// UI уже создан в init(); после LoadConfig модули обновились —
+	// обновляем только контент без пересборки (reuse existingMods)
 	if app.win != nil {
 		c, _, _ := app.createContent(app.tr.Process())
 		app.win.SetContent(c)
-		app.win.Resize(fyne.NewSize(520, 720))
+		app.win.SetFixedSize(true) // переустанавливаем после SetContent
 	}
 
 	go func() {
