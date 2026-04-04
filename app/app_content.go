@@ -73,6 +73,7 @@ func (app *App) createContent(proc *win.Process) (fyne.CanvasObject, []module.Mo
 			app.createZoomV2Module(proc, noDynFovMod),
 			app.createTimeModule(proc),
 			app.createItemUseDelayModule(proc),
+			app.createRainModule(proc),
 		}
 	}
 
@@ -607,6 +608,10 @@ func (app *App) createTimeModule(proc *win.Process) module.Module {
 
 func (app *App) createItemUseDelayModule(proc *win.Process) module.Module {
 	return modules.ItemUseDelay{Process: proc, Error: app.onError("item_use_delay"), AfterChange: app.autoSave}.Create()
+}
+
+func (app *App) createRainModule(proc *win.Process) module.Module {
+	return modules.Rain{Process: proc, Error: app.onError("rain"), AfterChange: app.autoSave}.Create()
 }
 
 func (app *App) onError(mod string) func(error) {
