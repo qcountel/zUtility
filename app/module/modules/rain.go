@@ -13,33 +13,8 @@ import (
 	"github.com/something-that-is-cool/zutil/internal/pkg/win"
 )
 
-// rainWeatherSig — сигнатура байт инструкции `movss [rcx+34], xmm0`
-// (и достаточного контекста вокруг неё) в Minecraft.Windows.exe.
-//
-// NOP этой инструкции блокирует серверные пакеты погоды от перезаписи
-// нашего значения rainLevel — модуль будет работать даже на серверах
-// без дополнительного поллинга.
-//
-// Как получить сигнатуру (один раз, в Cheat Engine):
-//  1. Поставь брейкпоинт на `movss [rcx+34], xmm0` (адрес ~C7F31C)
-//  2. /weather rain → CE ломает игру → выдели инструкцию в Memory Viewer
-//  3. Правая кнопка → SigMaker → "Create signature" → скопируй байты
-//  4. Вставь их сюда как []byte{0xF3, 0x0F, 0x11, 0x41, 0x34, ...}
-//
-// Пока nil — NOP-патч неактивен, дождь форсируется только поллингом
-// (50 мс; достаточно для большинства серверов).
 var rainWeatherSig []byte // TODO: заполнить байтами из SigMaker
 
-// Pointer chain — подтверждена CE Pointer Scanner (апрель 2026).
-//
-//	[Minecraft.Windows.exe + 0x018CA108]     → ptr
-//	  → [ptr + 0x118]                        → ptr
-//	  → [ptr + 0x2C0]                        → ptr
-//	  → [ptr + 0x0]                          → ptr
-//	    + 0x1E0                              = weather object base
-//
-//	weather object + 0x34 → rainLevel      (float32: 0.0 = ясно, 1.0 = дождь)
-//	weather object + 0x40 → lightningLevel (float32: 0.0 = выкл, 1.0 = гроза)
 const (
 	rainPtrBase uintptr = 0x018CA108
 	rainOff0    uintptr = 0x118
