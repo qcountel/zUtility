@@ -51,6 +51,9 @@ func (app *App) createContent(proc *win.Process) (fyne.CanvasObject, []module.Mo
 	if app.showSettings {
 		return app.createSettingsContent(), nil, nil
 	}
+	if app.showPacks {
+		return app.buildResourcePacksContent(), nil, nil
+	}
 
 	app.modulesMu.Lock()
 	existingMods := app.modules
@@ -134,6 +137,11 @@ func (app *App) buildHeader() fyne.CanvasObject {
 	})
 	settingsBtn.Importance = widget.LowImportance
 
+	packsBtn := widget.NewButtonWithIcon("", theme.StorageIcon(), func() {
+		app.animateToPacks()
+	})
+	packsBtn.Importance = widget.LowImportance
+
 	launchBtn := widget.NewButtonWithIcon("", theme.MediaPlayIcon(), func() {
 		go func() {
 			cmd := exec.Command("cmd", "/C", "start", "minecraft:")
@@ -145,7 +153,7 @@ func (app *App) buildHeader() fyne.CanvasObject {
 	})
 	launchBtn.Importance = widget.LowImportance
 
-	btnRow := container.NewHBox(launchBtn, settingsBtn)
+	btnRow := container.NewHBox(launchBtn, packsBtn, settingsBtn)
 	topRow := container.NewBorder(nil, nil, logoBox, btnRow)
 
 	headerBg := canvas.NewRectangle(bgCard)
@@ -185,6 +193,64 @@ func (app *App) animateToSettings() {
 		ticker.Stop()
 
 		app.showSettings = true
+		fyne.Do(func() {
+			nc, _, _ := app.createContent(app.tr.Process())
+			newOverlay := canvas.NewRectangle(color.NRGBA{R: 0x08, G: 0x05, B: 0x05, A: 0xFF})
+			app.win.SetContent(container.NewStack(nc, newOverlay))
+			app.win.Resize(fyne.NewSize(520, 720))
+
+			go func() {
+				const dur2 = 220 * time.Millisecond
+				start2 := time.Now()
+				t2 := time.NewTicker(14 * time.Millisecond)
+				defer t2.Stop()
+				for range t2.C {
+					p := math.Min(1.0, float64(time.Since(start2))/float64(dur2))
+					ease := 1 - math.Pow(1-p, 3)
+					a := uint8(255 * (1 - ease))
+					fyne.Do(func() {
+						newOverlay.FillColor = color.NRGBA{R: 0x08, G: 0x05, B: 0x05, A: a}
+						newOverlay.Refresh()
+						if p >= 1 {
+							newOverlay.Hide()
+						}
+					})
+					if p >= 1 {
+						break
+					}
+				}
+			}()
+		})
+	}()
+}
+
+func (app *App) animateToPacks() {
+	if app.win == nil {
+		return
+	}
+
+	current := app.win.Content()
+	overlay := canvas.NewRectangle(color.NRGBA{R: 0x08, G: 0x05, B: 0x05, A: 0x00})
+	app.win.SetContent(container.NewStack(current, overlay))
+
+	go func() {
+		const dur1 = 180 * time.Millisecond
+		start := time.Now()
+		ticker := time.NewTicker(14 * time.Millisecond)
+		for range ticker.C {
+			p := math.Min(1.0, float64(time.Since(start))/float64(dur1))
+			a := uint8(255 * (p * p))
+			fyne.Do(func() {
+				overlay.FillColor = color.NRGBA{R: 0x08, G: 0x05, B: 0x05, A: a}
+				overlay.Refresh()
+			})
+			if p >= 1 {
+				break
+			}
+		}
+		ticker.Stop()
+
+		app.showPacks = true
 		fyne.Do(func() {
 			nc, _, _ := app.createContent(app.tr.Process())
 			newOverlay := canvas.NewRectangle(color.NRGBA{R: 0x08, G: 0x05, B: 0x05, A: 0xFF})
