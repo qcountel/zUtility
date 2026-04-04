@@ -7,7 +7,10 @@ import (
 	"time"
 	"unsafe"
 
+	"image/color"
+
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
@@ -24,6 +27,8 @@ var (
 	_procEnumDisplaySettingsW = _zoomUser32.NewProc("EnumDisplaySettingsW")
 	_procGetCursorInfo        = _zoomUser32.NewProc("GetCursorInfo")
 )
+
+
 
 type cursorInfo struct {
 	cbSize      uint32
@@ -134,7 +139,7 @@ type ZoomV2Module struct {
 	localize     func(ru, en string) string
 
 	toggle    *modulesutil.M3Toggle
-	bindLabel *widget.Label
+	bindLabel *canvas.Text
 }
 
 func (*ZoomV2Module) Name() string { return "Zoom" }
@@ -159,7 +164,8 @@ func (z *ZoomV2Module) SetBindVK(vk uint32) {
 	z.bindVK = vk
 	z.mu.Unlock()
 	if z.bindLabel != nil {
-		z.bindLabel.SetText(z.vkName(vk))
+		z.bindLabel.Text = z.vkName(vk)
+		z.bindLabel.Refresh()
 	}
 }
 
@@ -190,7 +196,10 @@ func (z *ZoomV2Module) Disable() {
 }
 
 func (z *ZoomV2Module) CreateObjects() []fyne.CanvasObject {
-	toggle := modulesutil.NewM3Toggle(z.enabled)
+	z.mu.Lock()
+	initEnabled := z.enabled
+	z.mu.Unlock()
+	toggle := modulesutil.NewM3Toggle(initEnabled)
 	toggle.OnChange = func(b bool) {
 		z.mu.Lock()
 		z.enabled = b
@@ -210,12 +219,14 @@ func (z *ZoomV2Module) CreateObjects() []fyne.CanvasObject {
 	initVK := z.bindVK
 	z.mu.Unlock()
 
-	keyLabel := widget.NewLabel(z.vkName(initVK))
+	// Полупрозрачный ярлык клавиши
+	keyLabel := canvas.NewText(z.vkName(initVK), color.NRGBA{R: 0xAA, G: 0xAA, B: 0xAA, A: 0x99})
+	keyLabel.TextSize = 12
 	z.bindLabel = keyLabel
 
 	var (
 		captureCancel   context.CancelFunc
-		captureCancleMu sync.Mutex
+		captureCancelMu sync.Mutex
 	)
 
 	clearBtn := widget.NewButtonWithIcon("", theme.ContentClearIcon(), nil)
@@ -225,17 +236,17 @@ func (z *ZoomV2Module) CreateObjects() []fyne.CanvasObject {
 	bindBtn.Importance = widget.LowImportance
 
 	clearBtn.OnTapped = func() {
-		captureCancleMu.Lock()
+		captureCancelMu.Lock()
 		cc := captureCancel
 		captureCancel = nil
-		captureCancleMu.Unlock()
+		captureCancelMu.Unlock()
 		if cc != nil {
 			cc()
 		}
 		z.mu.Lock()
 		z.bindVK = 0
 		z.mu.Unlock()
-		keyLabel.SetText(z.vkName(0))
+		keyLabel.Text = z.vkName(0); keyLabel.Refresh()
 		bindBtn.SetText(z.t("Бинд", "Bind"))
 		if z.afterChange != nil {
 			z.afterChange()
@@ -244,34 +255,34 @@ func (z *ZoomV2Module) CreateObjects() []fyne.CanvasObject {
 
 	bindBtn.OnTapped = func() {
 
-		captureCancleMu.Lock()
+		captureCancelMu.Lock()
 		cc := captureCancel
 		captureCancel = nil
-		captureCancleMu.Unlock()
+		captureCancelMu.Unlock()
 		if cc != nil {
 			cc()
 			bindBtn.SetText(z.t("Бинд", "Bind"))
 			z.mu.Lock()
 			vk := z.bindVK
 			z.mu.Unlock()
-			keyLabel.SetText(z.vkName(vk))
+			keyLabel.Text = z.vkName(vk); keyLabel.Refresh()
 			return
 		}
 
 		bindBtn.SetText(z.t("Нажмите...", "Press..."))
-		keyLabel.SetText("...")
+		keyLabel.Text = "..."; keyLabel.Refresh()
 
 		captureCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		captureCancleMu.Lock()
+		captureCancelMu.Lock()
 		captureCancel = cancel
-		captureCancleMu.Unlock()
+		captureCancelMu.Unlock()
 
 		go func() {
 			defer func() {
 				cancel()
-				captureCancleMu.Lock()
+				captureCancelMu.Lock()
 				captureCancel = nil
-				captureCancleMu.Unlock()
+				captureCancelMu.Unlock()
 			}()
 
 			vk, ok := captureNextZoomKey(captureCtx)
@@ -281,7 +292,7 @@ func (z *ZoomV2Module) CreateObjects() []fyne.CanvasObject {
 					z.mu.Lock()
 					z.bindVK = vk
 					z.mu.Unlock()
-					keyLabel.SetText(z.vkName(vk))
+					keyLabel.Text = z.vkName(vk); keyLabel.Refresh()
 					if z.afterChange != nil {
 						z.afterChange()
 					}
@@ -289,7 +300,7 @@ func (z *ZoomV2Module) CreateObjects() []fyne.CanvasObject {
 					z.mu.Lock()
 					cur := z.bindVK
 					z.mu.Unlock()
-					keyLabel.SetText(z.vkName(cur))
+					keyLabel.Text = z.vkName(cur); keyLabel.Refresh()
 				}
 				bindBtn.SetText(z.t("Бинд", "Bind"))
 			})

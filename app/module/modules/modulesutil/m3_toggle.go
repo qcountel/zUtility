@@ -136,14 +136,15 @@ func (t *M3Toggle) runAnimation(on bool) {
 			e := 1 - math.Pow(1-p, 3)
 
 			curX := startX + (endX-startX)*float32(e)
-			t.thumb.Move(fyne.NewPos(curX, offY))
-			t.thumb.Refresh()
-
 			rr := lerpU8(startBg.R, endBg.R, e)
-			g := lerpU8(startBg.G, endBg.G, e)
-			b := lerpU8(startBg.B, endBg.B, e)
-			t.bg.FillColor = color.NRGBA{R: rr, G: g, B: b, A: 0xFF}
-			t.bg.Refresh()
+			gg := lerpU8(startBg.G, endBg.G, e)
+			bb := lerpU8(startBg.B, endBg.B, e)
+			fyne.Do(func() {
+				t.thumb.Move(fyne.NewPos(curX, offY))
+				t.thumb.Refresh()
+				t.bg.FillColor = color.NRGBA{R: rr, G: gg, B: bb, A: 0xFF}
+				t.bg.Refresh()
+			})
 
 			if p >= 1 {
 				break

@@ -186,7 +186,7 @@ func (s *M3BounceSlider) SetValueAnimated(target float64) {
 			s.mu.Lock()
 			s.displayValue = start + (target-start)*e
 			s.mu.Unlock()
-			s.Refresh()
+			fyne.Do(func() { s.Refresh() })
 			if p >= 1 {
 				break
 			}
