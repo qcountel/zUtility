@@ -2,6 +2,7 @@ package app
 
 import (
 	"archive/zip"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"image"
@@ -17,78 +18,59 @@ import (
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/layout"
+	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 )
 
-// packsJSONURL — прямая ссылка на packs.json в репозитории.
-const packsJSONURL = "https://raw.githubusercontent.com/qcountel/zUtility/main/packs.json"
+const packsJSONURL = "https://raw.githubusercontent.com/qcountel/packs/main/packs.json"
 
-// Pack описывает один ресурспак из packs.json.
+// Pack represents a single resource pack entry from packs.json.
 type Pack struct {
 	Name        string `json:"name"`
+	Description string `json:"description"`
 	ImageURL    string `json:"image_url"`
 	DownloadURL string `json:"download_url"`
 }
 
-// buildResourcePacksContent создаёт вкладку со списком ресурспаков.
-func (app *App) buildResourcePacksContent() fyne.CanvasObject {
-	title := ctxt(app.t("Ресурспаки", "Resource Packs"), textPrimary, 18)
-	title.TextStyle = fyne.TextStyle{Bold: true}
-
-	titleAccent := canvas.NewRectangle(accentRed)
-	titleAccent.SetMinSize(fyne.NewSize(36, 2))
-	titleAccent.CornerRadius = 1
+// createPacksContent fetches packs.json and builds the scrollable grid UI.
+func (app *App) createPacksContent() fyne.CanvasObject {
+	loading := widget.NewLabel("Загрузка ресурспаков...")
+	loading.Alignment = fyne.TextAlignCenter
 
 	grid := container.NewGridWithColumns(2)
-
-	loadingLabel := ctxt(app.t("Загрузка паков...", "Loading packs..."), textSecondary, 13)
-	grid.Add(container.New(layout.NewCustomPaddedLayout(10, 10, 10, 10), loadingLabel))
+	scroll := container.NewVScroll(grid)
 
 	go func() {
 		packs, err := fetchPacks()
-		fyne.Do(func() {
-			grid.RemoveAll()
-			if err != nil {
-				errLabel := ctxt(fmt.Sprintf("Ошибка: %v", err), accentRedBright, 12)
-				grid.Add(container.New(layout.NewCustomPaddedLayout(10, 10, 10, 10), errLabel))
-				grid.Refresh()
-				return
-			}
-			if len(packs) == 0 {
-				emptyLabel := ctxt(app.t("Паки не найдены", "No packs found"), textSecondary, 12)
-				grid.Add(container.New(layout.NewCustomPaddedLayout(10, 10, 10, 10), emptyLabel))
-				grid.Refresh()
-				return
-			}
-			for _, p := range packs {
-				pack := p
-				grid.Add(app.buildPackCard(pack))
-			}
-			grid.Refresh()
-		})
+		if err != nil {
+			loading.SetText("Ошибка загрузки: " + err.Error())
+			return
+		}
+		loading.Hide()
+		for _, p := range packs {
+			card := app.buildPackCard(p)
+			grid.Add(card)
+		}
+		grid.Refresh()
+		scroll.Refresh()
 	}()
 
-	content := container.NewVBox(
-		container.New(layout.NewCustomPaddedLayout(16, 4, 14, 14), title),
-		container.New(layout.NewCustomPaddedLayout(0, 10, 14, 14),
-			container.New(layout.NewCustomPaddedLayout(0, 0, 0, 0), titleAccent)),
-		container.New(layout.NewCustomPaddedLayout(0, 8, 8, 8), grid),
-	)
+	title := widget.NewLabelWithStyle("Ресурспаки", fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
 
-	return container.NewVScroll(content)
+	return container.NewBorder(
+		container.NewVBox(title, widget.NewSeparator(), loading),
+		nil, nil, nil,
+		scroll,
+	)
 }
 
-// fetchPacks скачивает и парсит packs.json.
+// fetchPacks downloads and parses packs.json from GitHub.
 func fetchPacks() ([]Pack, error) {
 	resp, err := http.Get(packsJSONURL)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
-	}
 
 	var packs []Pack
 	if err := json.NewDecoder(resp.Body).Decode(&packs); err != nil {
@@ -97,177 +79,149 @@ func fetchPacks() ([]Pack, error) {
 	return packs, nil
 }
 
-// buildPackCard создаёт карточку пака: превью → название → кнопка Установить.
+// buildPackCard creates a UI card for one resource pack.
 func (app *App) buildPackCard(p Pack) fyne.CanvasObject {
-	imgPlaceholder := canvas.NewRectangle(bgElevated)
-	imgPlaceholder.CornerRadius = 6
-	imgPlaceholder.SetMinSize(fyne.NewSize(0, 110))
+	// Placeholder image
+	img := canvas.NewImageFromImage(image.NewRGBA(image.Rect(0, 0, 1, 1)))
+	img.FillMode = canvas.ImageFillContain
+	img.SetMinSize(fyne.NewSize(160, 100))
 
-	imgStack := container.NewStack(imgPlaceholder)
-
+	// Async image load
 	go func() {
-		if p.ImageURL == "" {
-			return
-		}
 		resp, err := http.Get(p.ImageURL)
 		if err != nil {
 			return
 		}
 		defer resp.Body.Close()
-
-		img, _, err := image.Decode(resp.Body)
+		data, err := io.ReadAll(resp.Body)
 		if err != nil {
 			return
 		}
-
-		fyneImg := canvas.NewImageFromImage(img)
-		fyneImg.FillMode = canvas.ImageFillContain
-		fyneImg.SetMinSize(fyne.NewSize(0, 110))
-
-		fyne.Do(func() {
-			imgStack.Objects = []fyne.CanvasObject{imgPlaceholder, fyneImg}
-			imgStack.Refresh()
-		})
+		src, _, err := image.Decode(bytes.NewReader(data))
+		if err != nil {
+			return
+		}
+		img.Image = src
+		img.Refresh()
 	}()
 
-	nameText := ctxt(p.Name, textPrimary, 12)
-	nameText.TextStyle = fyne.TextStyle{Bold: true}
+	name := widget.NewLabelWithStyle(p.Name, fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
+	name.Wrapping = fyne.TextWrapWord
 
-	statusLabel := ctxt("", textSecondary, 10)
-	statusLabel.Hide()
+	var desc *widget.Label
+	if p.Description != "" {
+		desc = widget.NewLabel(p.Description)
+		desc.Wrapping = fyne.TextWrapWord
+		desc.Alignment = fyne.TextAlignCenter
+	}
 
-	var installBtn *widget.Button
-	installBtn = widget.NewButton(app.t("Установить", "Install"), func() {
+	statusLabel := widget.NewLabel("")
+	statusLabel.Alignment = fyne.TextAlignCenter
+
+	installBtn := widget.NewButtonWithIcon("Установить", theme.DownloadIcon(), nil)
+	installBtn.OnTapped = func() {
 		installBtn.Disable()
-		fyne.Do(func() {
-			statusLabel.Text = app.t("Загрузка...", "Downloading...")
-			statusLabel.Color = textSecondary
-			statusLabel.Show()
-			statusLabel.Refresh()
-		})
+		statusLabel.SetText("Загрузка...")
 		go func() {
-			err := app.installPackZip(p)
-			fyne.Do(func() {
-				if err != nil {
-					statusLabel.Text = fmt.Sprintf("✗ %v", err)
-					statusLabel.Color = accentRedBright
-					installBtn.Enable()
-				} else {
-					statusLabel.Text = app.t("✓ Установлен", "✓ Installed")
-					statusLabel.Color = accentGreen
-				}
-				statusLabel.Refresh()
-			})
+			err := installMcpack(p.Name, p.DownloadURL)
+			if err != nil {
+				statusLabel.SetText("✗ " + err.Error())
+			} else {
+				statusLabel.SetText("✓ Установлен")
+			}
+			installBtn.Enable()
 		}()
-	})
+	}
 
-	inner := container.NewVBox(
-		imgStack,
-		container.New(layout.NewCustomPaddedLayout(6, 2, 4, 4), nameText),
-		container.New(layout.NewCustomPaddedLayout(0, 4, 4, 4), installBtn),
-		container.New(layout.NewCustomPaddedLayout(0, 2, 4, 4), statusLabel),
-	)
+	var cardItems []fyne.CanvasObject
+	cardItems = append(cardItems, img)
+	cardItems = append(cardItems, name)
+	if desc != nil {
+		cardItems = append(cardItems, desc)
+	}
+	cardItems = append(cardItems, layout.NewSpacer())
+	cardItems = append(cardItems, installBtn)
+	cardItems = append(cardItems, statusLabel)
 
-	cardBg := canvas.NewRectangle(bgCard)
-	cardBg.CornerRadius = 8
-
-	padded := container.New(layout.NewCustomPaddedLayout(8, 8, 8, 8), inner)
-	card := container.NewStack(cardBg, padded)
-
-	return container.New(layout.NewCustomPaddedLayout(4, 4, 4, 4), card)
+	content := container.NewVBox(cardItems...)
+	return widget.NewCard("", "", content)
 }
 
-// installPackZip скачивает .zip и распаковывает в папку ресурспаков Minecraft.
-func (app *App) installPackZip(p Pack) error {
-	resp, err := http.Get(p.DownloadURL)
+// installMcpack downloads a .mcpack file and installs it into Minecraft's resource_packs directory.
+// .mcpack files are ZIP archives — we extract their contents into a named subfolder.
+func installMcpack(name, downloadURL string) error {
+	localAppData := os.Getenv("LOCALAPPDATA")
+	if localAppData == "" {
+		return fmt.Errorf("LOCALAPPDATA не задан")
+	}
+	packDir := filepath.Join(
+		localAppData,
+		"Packages",
+		"Microsoft.MinecraftUWP_8wekyb3d8bbwe",
+		"LocalState",
+		"games",
+		"com.mojang",
+		"resource_packs",
+		sanitizeName(name),
+	)
+	if err := os.MkdirAll(packDir, 0755); err != nil {
+		return fmt.Errorf("не удалось создать папку: %w", err)
+	}
+
+	resp, err := http.Get(downloadURL)
 	if err != nil {
-		return fmt.Errorf("download: %w", err)
+		return fmt.Errorf("ошибка загрузки: %w", err)
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("download HTTP %d", resp.StatusCode)
-	}
-
-	tmp, err := os.CreateTemp("", "pack-*.zip")
+	data, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return fmt.Errorf("temp file: %w", err)
-	}
-	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath)
-
-	if _, err := io.Copy(tmp, resp.Body); err != nil {
-		tmp.Close()
-		return fmt.Errorf("write: %w", err)
-	}
-	tmp.Close()
-
-	localAppData := os.Getenv("LOCALAPPDATA")
-	destDir := filepath.Join(
-		localAppData,
-		`Packages\Microsoft.MinecraftUWP_8wekyb3d8bbwe\LocalState\games\com.mojang\resource_packs`,
-		sanitizePackName(p.Name),
-	)
-
-	if err := os.MkdirAll(destDir, 0o755); err != nil {
-		return fmt.Errorf("mkdir: %w", err)
+		return fmt.Errorf("ошибка чтения: %w", err)
 	}
 
-	if err := extractZipTo(tmpPath, destDir); err != nil {
-		return fmt.Errorf("extract: %w", err)
-	}
-
-	app.conf.Logger.Info("resource pack installed", "name", p.Name, "dest", destDir)
-	return nil
-}
-
-func sanitizePackName(name string) string {
-	rep := strings.NewReplacer(
-		" ", "_", "/", "_", "\\", "_",
-		":", "_", "*", "_", "?", "_",
-		"\"", "_", "<", "_", ">", "_", "|", "_",
-	)
-	return rep.Replace(name)
-}
-
-func extractZipTo(src, dest string) error {
-	r, err := zip.OpenReader(src)
+	// .mcpack is a ZIP archive
+	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
-		return err
+		return fmt.Errorf("ошибка открытия архива: %w", err)
 	}
-	defer r.Close()
 
-	cleanDest := filepath.Clean(dest) + string(os.PathSeparator)
-
-	for _, f := range r.File {
-		outPath := filepath.Join(dest, filepath.Clean(f.Name))
-		if !strings.HasPrefix(outPath, cleanDest) {
-			continue
+	for _, f := range zr.File {
+		destPath := filepath.Join(packDir, f.Name)
+		if !strings.HasPrefix(filepath.Clean(destPath), filepath.Clean(packDir)) {
+			continue // zip-slip protection
 		}
 		if f.FileInfo().IsDir() {
-			if err := os.MkdirAll(outPath, 0o755); err != nil {
-				return err
-			}
+			os.MkdirAll(destPath, 0755)
 			continue
 		}
-		if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil {
-			return err
-		}
-		out, err := os.Create(outPath)
-		if err != nil {
+		if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
 			return err
 		}
 		rc, err := f.Open()
 		if err != nil {
-			out.Close()
 			return err
 		}
-		_, copyErr := io.Copy(out, rc)
-		rc.Close()
+		out, err := os.Create(destPath)
+		if err != nil {
+			rc.Close()
+			return err
+		}
+		_, err = io.Copy(out, rc)
 		out.Close()
-		if copyErr != nil {
-			return copyErr
+		rc.Close()
+		if err != nil {
+			return err
 		}
 	}
+
 	return nil
+}
+
+// sanitizeName removes characters unsafe for directory names.
+func sanitizeName(name string) string {
+	replacer := strings.NewReplacer(
+		"/", "_", "\\", "_", ":", "_", "*", "_",
+		"?", "_", `"`, "_", "<", "_", ">", "_", "|", "_",
+	)
+	return replacer.Replace(name)
 }
