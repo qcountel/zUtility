@@ -1,6 +1,8 @@
 package modules
 
 import (
+	"context"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -11,72 +13,110 @@ import (
 	"github.com/something-that-is-cool/zutil/internal/pkg/win"
 )
 
-var (
-	// Pointer chain: Minecraft.Windows.exe+018CA108 → [+118] → [+2C0] → [+0] → +1E0 = weather object
-	rainBaseAddress = uintptr(0x018CA108)
-	rainOffsets     = []uintptr{0x118, 0x2C0, 0x0, 0x1E0}
+// rainWeatherSig — сигнатура байт инструкции `movss [rcx+34], xmm0`
+// (и достаточного контекста вокруг неё) в Minecraft.Windows.exe.
+//
+// NOP этой инструкции блокирует серверные пакеты погоды от перезаписи
+// нашего значения rainLevel — модуль будет работать даже на серверах
+// без дополнительного поллинга.
+//
+// Как получить сигнатуру (один раз, в Cheat Engine):
+//  1. Поставь брейкпоинт на `movss [rcx+34], xmm0` (адрес ~C7F31C)
+//  2. /weather rain → CE ломает игру → выдели инструкцию в Memory Viewer
+//  3. Правая кнопка → SigMaker → "Create signature" → скопируй байты
+//  4. Вставь их сюда как []byte{0xF3, 0x0F, 0x11, 0x41, 0x34, ...}
+//
+// Пока nil — NOP-патч неактивен, дождь форсируется только поллингом
+// (50 мс; достаточно для большинства серверов).
+var rainWeatherSig []byte // TODO: заполнить байтами из SigMaker
 
-	// movss [rcx+34], xmm0 — server writes rainLevel
-	// F3 0F 11 41 34  C3  B8 BA 0B 00 00
-	rainLevelSig = []byte{0xF3, 0x0F, 0x11, 0x41, 0x34, 0xC3, 0xB8, 0xBA, 0x0B, 0x00, 0x00}
-
-	// movss [rcx+40], xmm0 — server writes lightningLevel
-	// F3 0F 11 41 40  C3  B8 BC 0B 00 00
-	lightLevelSig = []byte{0xF3, 0x0F, 0x11, 0x41, 0x40, 0xC3, 0xB8, 0xBC, 0x0B, 0x00, 0x00}
-
-	// Original bytes for restore (only 5-byte movss instruction)
-	rainMovssOrig  = [5]byte{0xF3, 0x0F, 0x11, 0x41, 0x34}
-	lightMovssOrig = [5]byte{0xF3, 0x0F, 0x11, 0x41, 0x40}
-)
-
+// Pointer chain — подтверждена CE Pointer Scanner (апрель 2026).
+//
+//	[Minecraft.Windows.exe + 0x018CA108]     → ptr
+//	  → [ptr + 0x118]                        → ptr
+//	  → [ptr + 0x2C0]                        → ptr
+//	  → [ptr + 0x0]                          → ptr
+//	    + 0x1E0                              = weather object base
+//
+//	weather object + 0x34 → rainLevel      (float32: 0.0 = ясно, 1.0 = дождь)
+//	weather object + 0x40 → lightningLevel (float32: 0.0 = выкл, 1.0 = гроза)
 const (
-	rainAddrTTL         = 5 * time.Second
-	rainOffsetRain      = uintptr(0x34)
-	rainOffsetLightning = uintptr(0x40)
+	rainPtrBase uintptr = 0x018CA108
+	rainOff0    uintptr = 0x118
+	rainOff1    uintptr = 0x2C0
+	rainOff2    uintptr = 0x0
+	rainOff3    uintptr = 0x1E0
+
+	offRainLevel      uintptr = 0x34
+	offLightningLevel uintptr = 0x40
+
+	rainPollInterval = 50 * time.Millisecond
+	rainCacheTTL     = 5 * time.Second
 )
 
-var _ module.Module = (*rain)(nil)
+var _ module.Module = (*rainModule)(nil)
 
+// Rain — конфигурация модуля. Вызови Create() чтобы получить модуль.
 type Rain struct {
 	Process     *win.Process
 	Error       func(error)
 	AfterChange func()
 }
 
-func (conf Rain) Create() module.Module {
-	return &rain{
-		proc:        conf.Process,
-		errFn:       conf.Error,
-		afterChange: conf.AfterChange,
+func (c Rain) Create() module.Module {
+	return &rainModule{
+		process:     c.Process,
+		errFn:       c.Error,
+		afterChange: c.AfterChange,
 	}
 }
 
-type rain struct {
-	proc        *win.Process
+type rainModule struct {
+	// cancelMu охраняет только поле cancel — для защиты от двойного запуска горутины.
+	// Всё остальное — атомики.
+	cancelMu sync.Mutex
+	cancel   context.CancelFunc
+
+	process     *win.Process
 	errFn       func(error)
 	afterChange func()
 
-	enabled  atomic.Bool
-	cancelMu sync.Mutex
-	running  bool
-	stopChan chan struct{}
+	enabled atomic.Bool
 
-	// Weather object address cache (TTL 5s)
-	addrMu     sync.Mutex
-	cachedAddr uintptr
-	addrExpiry time.Time
+	// Кэш адреса weather object с TTL.
+	addrCache     atomic.Uintptr
+	addrCacheNano atomic.Int64
 
-	// NOP patch addresses (cached forever — code doesn't move)
-	rainNopAddr  atomic.Uintptr
-	lightNopAddr atomic.Uintptr
-	nopApplied   atomic.Bool
+	// NOP-патч (инициализируется лениво при первом Enable, если sig задана).
+	nopMu sync.Mutex
+	nop   *win.SignatureNopToggler
+
+	toggle *modulesutil.M3Toggle
 }
 
-func (*rain) Name() string        { return "Rain" }
-func (*rain) Description() string { return "Toggles rain. Works on servers." }
+func (*rainModule) Name() string        { return "Rain" }
+func (*rainModule) Description() string { return "Включает дождь. Работает на серверах." }
+func (r *rainModule) IsEnabled() bool   { return r.enabled.Load() }
 
-func (r *rain) CreateObjects() []fyne.CanvasObject {
-	toggle := modulesutil.NewM3Toggle(r.IsEnabled())
+// Enable включает дождь: NOP-патч (если сигнатура задана) + запуск поллинга.
+func (r *rainModule) Enable() {
+	r.enabled.Store(true)
+	r.applyNop(true)
+	r.startLoop()
+	r.syncToggle(true)
+}
+
+// Disable выключает дождь: стоп поллинга → записать 0 → восстановить NOP.
+func (r *rainModule) Disable() {
+	r.enabled.Store(false)
+	r.stopLoop()
+	r.writeWeather(0.0, 0.0) // сразу очистить дождь
+	r.applyNop(false)
+	r.syncToggle(false)
+}
+
+func (r *rainModule) CreateObjects() []fyne.CanvasObject {
+	toggle := modulesutil.NewM3Toggle(r.enabled.Load())
 	toggle.OnChange = func(b bool) {
 		if b {
 			r.Enable()
@@ -87,166 +127,130 @@ func (r *rain) CreateObjects() []fyne.CanvasObject {
 			r.afterChange()
 		}
 	}
+	r.toggle = toggle
 	return []fyne.CanvasObject{toggle}
 }
 
-func (r *rain) IsEnabled() bool { return r.enabled.Load() }
+// ── внутренние методы ──────────────────────────────────────────────────────
 
-func (r *rain) Enable() {
-	if r.enabled.Load() {
+func (r *rainModule) syncToggle(v bool) {
+	if r.toggle == nil {
 		return
 	}
-	r.enabled.Store(true)
+	prev := r.toggle.OnChange
+	r.toggle.OnChange = nil
+	r.toggle.SetChecked(v)
+	r.toggle.OnChange = prev
+}
 
-	// Try NOP patch — optional, needed for servers.
-	// If it fails we still run polling (works in singleplayer).
-	if err := r.applyNops(); err != nil {
+func (r *rainModule) startLoop() {
+	r.cancelMu.Lock()
+	defer r.cancelMu.Unlock()
+	if r.cancel != nil {
+		return // уже запущен
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	r.cancel = cancel
+	go r.loop(ctx)
+}
+
+func (r *rainModule) stopLoop() {
+	r.cancelMu.Lock()
+	cancel := r.cancel
+	r.cancel = nil
+	r.cancelMu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+}
+
+func (r *rainModule) loop(ctx context.Context) {
+	ticker := time.NewTicker(rainPollInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			r.writeWeather(1.0, 0.0)
+		}
+	}
+}
+
+// writeWeather записывает rainLevel и lightningLevel в weather object.
+func (r *rainModule) writeWeather(rain, lightning float32) {
+	base, err := r.resolveWeatherObj()
+	if err != nil {
+		// молча: процесс мог ещё не запуститься
+		return
+	}
+	if err := win.WriteMemory[float32](r.process, base+offRainLevel, rain); err != nil {
+		r.invalidateCache()
 		if r.errFn != nil {
-			r.errFn(err)
+			r.errFn(fmt.Errorf("rain: write rainLevel: %w", err))
+		}
+		return
+	}
+	if err := win.WriteMemory[float32](r.process, base+offLightningLevel, lightning); err != nil {
+		r.invalidateCache()
+		if r.errFn != nil {
+			r.errFn(fmt.Errorf("rain: write lightningLevel: %w", err))
 		}
 	}
-
-	// Write rain immediately (don't wait for first ticker)
-	if addr, err := r.getWeatherAddr(); err == nil {
-		_ = win.WriteMemory[float32](r.proc, addr+rainOffsetRain, 1.0)
-	}
-
-	r.startPolling()
 }
 
-func (r *rain) Disable() {
-	if !r.enabled.Load() {
-		return
+// resolveWeatherObj разрешает pointer chain и возвращает базовый адрес weather object.
+func (r *rainModule) resolveWeatherObj() (uintptr, error) {
+	if cached := r.addrCache.Load(); cached != 0 {
+		if time.Since(time.Unix(0, r.addrCacheNano.Load())) < rainCacheTTL {
+			return cached, nil
+		}
 	}
-	r.enabled.Store(false)
-	r.stopPolling()
-
-	// Write 0 immediately
-	if addr, err := r.getWeatherAddr(); err == nil {
-		_ = win.WriteMemory[float32](r.proc, addr+rainOffsetRain, 0.0)
-		_ = win.WriteMemory[float32](r.proc, addr+rainOffsetLightning, 0.0)
+	addr, err := win.ResolvePointerAddress(
+		r.process, r.process.Module,
+		rainPtrBase,
+		[]uintptr{rainOff0, rainOff1, rainOff2, rainOff3},
+	)
+	if err != nil {
+		r.invalidateCache()
+		return 0, fmt.Errorf("rain: resolve pointer chain: %w", err)
 	}
-
-	r.restoreNops()
+	r.addrCache.Store(addr)
+	r.addrCacheNano.Store(time.Now().UnixNano())
+	return addr, nil
 }
 
-// --- Polling loop ---
+func (r *rainModule) invalidateCache() {
+	r.addrCache.Store(0)
+	r.addrCacheNano.Store(0)
+}
 
-func (r *rain) startPolling() {
-	r.cancelMu.Lock()
-	defer r.cancelMu.Unlock()
-	if r.running {
+// applyNop включает/выключает NOP-патч на инструкцию записи rainLevel.
+// Безопасно вызывать когда rainWeatherSig == nil — просто ничего не делает.
+func (r *rainModule) applyNop(enable bool) {
+	if len(rainWeatherSig) == 0 {
 		return
 	}
-	r.running = true
-	r.stopChan = make(chan struct{})
+	r.nopMu.Lock()
+	defer r.nopMu.Unlock()
 
-	go func() {
-		ticker := time.NewTicker(50 * time.Millisecond)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-r.stopChan:
-				return
-			case <-ticker.C:
-				addr, err := r.getWeatherAddr()
-				if err != nil {
-					r.invalidateAddr()
-					continue
-				}
-				if err := win.WriteMemory[float32](r.proc, addr+rainOffsetRain, 1.0); err != nil {
-					r.invalidateAddr()
-				}
+	if r.nop == nil {
+		t, err := win.SignatureNopTogglerConfig{
+			Process:   r.process,
+			Module:    r.process.Module,
+			Size:      r.process.ModuleSize,
+			Signature: rainWeatherSig,
+		}.New()
+		if err != nil {
+			if r.errFn != nil {
+				r.errFn(fmt.Errorf("rain: nop init: %w", err))
 			}
+			return
 		}
-	}()
-}
+		r.nop = t
+	}
 
-func (r *rain) stopPolling() {
-	r.cancelMu.Lock()
-	defer r.cancelMu.Unlock()
-	if !r.running {
-		return
+	if err := r.nop.Set(enable); err != nil && r.errFn != nil {
+		r.errFn(fmt.Errorf("rain: nop set=%v: %w", enable, err))
 	}
-	r.running = false
-	close(r.stopChan)
-}
-
-// --- Pointer chain ---
-
-func (r *rain) getWeatherAddr() (uintptr, error) {
-	r.addrMu.Lock()
-	defer r.addrMu.Unlock()
-	if r.cachedAddr != 0 && time.Now().Before(r.addrExpiry) {
-		return r.cachedAddr, nil
-	}
-	mod, _, err := r.proc.GetModuleInfo()
-	if err != nil {
-		return 0, err
-	}
-	addr, err := win.ResolvePointerAddress(r.proc, mod, rainBaseAddress, rainOffsets)
-	if err != nil {
-		return 0, err
-	}
-	r.cachedAddr = addr
-	r.addrExpiry = time.Now().Add(rainAddrTTL)
-	return addr, nil
-}
-
-func (r *rain) invalidateAddr() {
-	r.addrMu.Lock()
-	r.cachedAddr = 0
-	r.addrMu.Unlock()
-}
-
-// --- NOP patch ---
-
-func (r *rain) findNopAddr(cache *atomic.Uintptr, sig []byte) (uintptr, error) {
-	if addr := cache.Load(); addr != 0 {
-		return addr, nil
-	}
-	mod, size, err := r.proc.GetModuleInfo()
-	if err != nil {
-		return 0, err
-	}
-	addr, err := win.ScanSignature(r.proc, size, mod, sig)
-	if err != nil {
-		return 0, err
-	}
-	cache.Store(addr)
-	return addr, nil
-}
-
-func (r *rain) applyNops() error {
-	rainAddr, err := r.findNopAddr(&r.rainNopAddr, rainLevelSig)
-	if err != nil {
-		return err
-	}
-	lightAddr, err := r.findNopAddr(&r.lightNopAddr, lightLevelSig)
-	if err != nil {
-		return err
-	}
-	nop := []byte{0x90, 0x90, 0x90, 0x90, 0x90}
-	if err := win.Patch(r.proc, rainAddr, nop); err != nil {
-		return err
-	}
-	if err := win.Patch(r.proc, lightAddr, nop); err != nil {
-		return err
-	}
-	r.nopApplied.Store(true)
-	return nil
-}
-
-func (r *rain) restoreNops() {
-	if !r.nopApplied.Load() {
-		return
-	}
-	if addr := r.rainNopAddr.Load(); addr != 0 {
-		_ = win.Patch(r.proc, addr, rainMovssOrig[:])
-	}
-	if addr := r.lightNopAddr.Load(); addr != 0 {
-		_ = win.Patch(r.proc, addr, lightMovssOrig[:])
-	}
-	r.nopApplied.Store(false)
 }
