@@ -1,0 +1,31 @@
+{
+  "version": "1.0",
+  "minimize_to_tray": true,
+  "modules": [
+    {
+      "name": "auto sprint",
+      "enabled": true,
+      "value": 0
+    },
+    {
+      "name": "no hurt cam",
+      "enabled": true,
+      "value": 0
+    },
+    {
+      "name": "no dynamic fov",
+      "enabled": false,
+      "value": 0
+    },
+    {
+      "name": "no particle",
+      "enabled": false,
+      "value": 0
+    },
+    {
+      "name": "controller sensitivity",
+      "enabled": true,
+      "value": 2.5
+    }
+  ]
+}
