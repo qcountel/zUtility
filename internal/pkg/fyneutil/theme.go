@@ -88,9 +88,9 @@ func (t *CrimsonDarkTheme) Size(name fyne.ThemeSizeName) float32 {
 	case theme.SizeNameInputBorder:
 		return 1
 	case theme.SizeNameScrollBar:
-		return 3
+		return 0
 	case theme.SizeNameScrollBarSmall:
-		return 2
+		return 0
 	case theme.SizeNameSeparatorThickness:
 		return 1
 	}
