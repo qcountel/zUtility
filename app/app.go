@@ -41,6 +41,9 @@ type App struct {
 	showSettings   bool
 	showHotkey     uint32
 	language       string
+
+	// activeTab — индекс активной вкладки в боковом меню (0=Модули, 1=Конфигурация, 2=Настройки, 3=Ресурспаки)
+	activeTab int
 }
 
 func (app *App) init(proc *win.Process) ([]module.Module, error) {

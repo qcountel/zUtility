@@ -32,8 +32,8 @@ type Pack struct {
 	DownloadURL string `json:"download_url"`
 }
 
-// createPacksContent fetches packs.json and builds the scrollable grid UI.
-func (app *App) createPacksContent() fyne.CanvasObject {
+// buildResourcePacksContent fetches packs.json and builds the scrollable grid UI.
+func (app *App) buildResourcePacksContent() fyne.CanvasObject {
 	loading := widget.NewLabel("Загрузка ресурспаков...")
 	loading.Alignment = fyne.TextAlignCenter
 
@@ -43,25 +43,36 @@ func (app *App) createPacksContent() fyne.CanvasObject {
 	go func() {
 		packs, err := fetchPacks()
 		if err != nil {
-			loading.SetText("Ошибка загрузки: " + err.Error())
+			fyne.Do(func() {
+				loading.SetText("Ошибка загрузки: " + err.Error())
+			})
 			return
 		}
-		loading.Hide()
-		for _, p := range packs {
-			card := app.buildPackCard(p)
-			grid.Add(card)
-		}
-		grid.Refresh()
-		scroll.Refresh()
+		fyne.Do(func() {
+			loading.Hide()
+			for _, p := range packs {
+				card := app.buildPackCard(p)
+				grid.Add(card)
+			}
+			grid.Refresh()
+			scroll.Refresh()
+		})
 	}()
 
-	title := widget.NewLabelWithStyle("Ресурспаки", fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
+	title := ctxt(app.t("Ресурспаки", "Resource Packs"), textPrimary, 18)
+	title.TextStyle = fyne.TextStyle{Bold: true}
 
-	return container.NewBorder(
-		container.NewVBox(title, widget.NewSeparator(), loading),
-		nil, nil, nil,
-		scroll,
+	titleAccent := canvas.NewRectangle(accentRed)
+	titleAccent.SetMinSize(fyne.NewSize(36, 2))
+	titleAccent.CornerRadius = 1
+
+	header := container.NewVBox(
+		container.New(layout.NewCustomPaddedLayout(16, 4, 14, 14), title),
+		container.New(layout.NewCustomPaddedLayout(0, 10, 14, 14), titleAccent),
+		container.New(layout.NewCustomPaddedLayout(4, 8, 14, 14), loading),
 	)
+
+	return container.NewBorder(header, nil, nil, nil, scroll)
 }
 
 // fetchPacks downloads and parses packs.json from GitHub.
@@ -101,54 +112,66 @@ func (app *App) buildPackCard(p Pack) fyne.CanvasObject {
 		if err != nil {
 			return
 		}
-		img.Image = src
-		img.Refresh()
+		fyne.Do(func() {
+			img.Image = src
+			img.Refresh()
+		})
 	}()
 
-	name := widget.NewLabelWithStyle(p.Name, fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
-	name.Wrapping = fyne.TextWrapWord
+	name := ctxt(p.Name, textPrimary, 13)
+	name.TextStyle = fyne.TextStyle{Bold: true}
 
-	var desc *widget.Label
+	var descObj fyne.CanvasObject
 	if p.Description != "" {
-		desc = widget.NewLabel(p.Description)
-		desc.Wrapping = fyne.TextWrapWord
-		desc.Alignment = fyne.TextAlignCenter
+		desc := ctxt(p.Description, textSecondary, 11)
+		descObj = container.New(layout.NewCustomPaddedLayout(2, 0, 0, 0), desc)
 	}
 
-	statusLabel := widget.NewLabel("")
-	statusLabel.Alignment = fyne.TextAlignCenter
+	statusLabel := ctxt("", textSecondary, 11)
 
-	installBtn := widget.NewButtonWithIcon("Установить", theme.DownloadIcon(), nil)
+	installBtn := widget.NewButtonWithIcon(app.t("Установить", "Install"), theme.DownloadIcon(), nil)
+	installBtn.Importance = widget.LowImportance
 	installBtn.OnTapped = func() {
 		installBtn.Disable()
-		statusLabel.SetText("Загрузка...")
+		fyne.Do(func() { statusLabel.Text = app.t("Загрузка...", "Downloading..."); statusLabel.Refresh() })
 		go func() {
 			err := installMcpack(p.Name, p.DownloadURL)
-			if err != nil {
-				statusLabel.SetText("✗ " + err.Error())
-			} else {
-				statusLabel.SetText("✓ Установлен")
-			}
-			installBtn.Enable()
+			fyne.Do(func() {
+				if err != nil {
+					statusLabel.Text = "✗ " + err.Error()
+					statusLabel.Color = accentOrange
+				} else {
+					statusLabel.Text = "✓ " + app.t("Установлен", "Installed")
+					statusLabel.Color = accentGreen
+				}
+				statusLabel.Refresh()
+				installBtn.Enable()
+			})
 		}()
 	}
 
 	var cardItems []fyne.CanvasObject
 	cardItems = append(cardItems, img)
-	cardItems = append(cardItems, name)
-	if desc != nil {
-		cardItems = append(cardItems, desc)
+	cardItems = append(cardItems, container.New(layout.NewCustomPaddedLayout(6, 2, 0, 0), name))
+	if descObj != nil {
+		cardItems = append(cardItems, descObj)
 	}
 	cardItems = append(cardItems, layout.NewSpacer())
-	cardItems = append(cardItems, installBtn)
+	cardItems = append(cardItems, container.New(layout.NewCustomPaddedLayout(4, 0, 0, 0), installBtn))
 	cardItems = append(cardItems, statusLabel)
 
-	content := container.NewVBox(cardItems...)
-	return widget.NewCard("", "", content)
+	cardBg := canvas.NewRectangle(bgCard)
+	cardBg.CornerRadius = 8
+	cardBorder := canvas.NewRectangle(borderRed)
+	cardBorder.CornerRadius = 9
+
+	inner := container.NewVBox(cardItems...)
+	paddedInner := container.New(layout.NewCustomPaddedLayout(10, 10, 10, 10), inner)
+	card := container.NewStack(cardBorder, cardBg, paddedInner)
+	return container.New(layout.NewCustomPaddedLayout(4, 4, 6, 6), card)
 }
 
 // installMcpack downloads a .mcpack file and installs it into Minecraft's resource_packs directory.
-// .mcpack files are ZIP archives — we extract their contents into a named subfolder.
 func installMcpack(name, downloadURL string) error {
 	localAppData := os.Getenv("LOCALAPPDATA")
 	if localAppData == "" {
@@ -179,7 +202,6 @@ func installMcpack(name, downloadURL string) error {
 		return fmt.Errorf("ошибка чтения: %w", err)
 	}
 
-	// .mcpack is a ZIP archive
 	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
 		return fmt.Errorf("ошибка открытия архива: %w", err)

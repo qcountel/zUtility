@@ -20,25 +20,21 @@ import (
 )
 
 var (
-	// Цветовая схема как в HTML-прототипе
-	bgPrimary  = chex(0x0F, 0x0F, 0x12) // основной фон #0f0f12
-	bgSidebar  = chex(0x11, 0x11, 0x15) // сайдбар #111115
-	bgCard     = color.NRGBA{R: 0x18, G: 0x18, B: 0x1E, A: 0xFF} // карточки тёмно-синеватые
-	bgElevated = chex(0x22, 0x22, 0x22) // приподнятые элементы
+	bgPrimary  = chex(0x0F, 0x0F, 0x12)
+	bgSidebar  = chex(0x11, 0x11, 0x15)
+	bgCard     = color.NRGBA{R: 0x18, G: 0x18, B: 0x1E, A: 0xFF}
+	bgElevated = chex(0x22, 0x22, 0x22)
 
-	// Красные акценты
 	accentRed       = chex(0xCC, 0x33, 0x33)
 	accentRedBright = chex(0xFF, 0x55, 0x55)
 	accentRedDim    = chex(0x7A, 0x1A, 0x1A)
 	accentOrange    = chex(0xDD, 0x77, 0x22)
 	accentGreen     = chex(0x33, 0xBB, 0x55)
 
-	// Текст
 	textPrimary   = chex(0xE8, 0xE8, 0xE8)
 	textSecondary = chex(0x88, 0x88, 0x88)
 	textDim       = chex(0x50, 0x50, 0x50)
 
-	// Границы
 	borderSubtle = chex(0x2A, 0x2A, 0x2A)
 	borderRed    = color.NRGBA{R: 0xCC, G: 0x33, B: 0x33, A: 0x20}
 )
@@ -50,7 +46,6 @@ func chex(r, g, b uint8) color.NRGBA {
 func calpha(c color.NRGBA, a uint8) color.NRGBA {
 	return color.NRGBA{R: c.R, G: c.G, B: c.B, A: a}
 }
-
 
 func (app *App) createContent(proc *win.Process) (fyne.CanvasObject, []module.Module, error) {
 	app.modulesMu.Lock()
@@ -80,7 +75,6 @@ func (app *App) createContent(proc *win.Process) (fyne.CanvasObject, []module.Mo
 
 	var contentStack *fyne.Container
 
-	// Оверлей для анимации смены вкладок
 	tabFade := canvas.NewRectangle(color.NRGBA{R: 0x0F, G: 0x0F, B: 0x12, A: 0x00})
 	tabFade.Hide()
 
@@ -96,7 +90,6 @@ func (app *App) createContent(proc *win.Process) (fyne.CanvasObject, []module.Mo
 		app.activeTab = tab
 		go func(switchTab int) {
 			defer tabAnimating.Store(false)
-			// --- Fade OUT ---
 			fyne.Do(func() {
 				tabFade.FillColor = color.NRGBA{R: 0x0F, G: 0x0F, B: 0x12, A: 0x00}
 				tabFade.Show()
@@ -118,7 +111,6 @@ func (app *App) createContent(proc *win.Process) (fyne.CanvasObject, []module.Mo
 			}
 			t1.Stop()
 
-			// --- Switch content ---
 			newContent := app.buildTabContent(switchTab, mods)
 			fyne.Do(func() {
 				if len(contentStack.Objects) > 0 {
@@ -130,7 +122,6 @@ func (app *App) createContent(proc *win.Process) (fyne.CanvasObject, []module.Mo
 			})
 			time.Sleep(16 * time.Millisecond)
 
-			// --- Fade IN ---
 			const durIn = 140 * time.Millisecond
 			t2 := time.NewTicker(14 * time.Millisecond)
 			start2 := time.Now()
@@ -186,6 +177,41 @@ func (app *App) createContent(proc *win.Process) (fyne.CanvasObject, []module.Mo
 	return wrapper, mods, nil
 }
 
+// animateToSettings переключает на вкладку настроек (tab=2) с анимацией.
+func (app *App) animateToSettings() {
+	if app.win == nil {
+		return
+	}
+	app.activeTab = 2
+	fyne.Do(func() {
+		nc, _, _ := app.createContent(app.tr.Process())
+		overlay := canvas.NewRectangle(color.NRGBA{R: 0x0F, G: 0x0F, B: 0x12, A: 0xFF})
+		app.win.SetContent(container.NewStack(nc, overlay))
+		app.win.Resize(fyne.NewSize(520, 720))
+		go func() {
+			const dur = 220 * time.Millisecond
+			start := time.Now()
+			ticker := time.NewTicker(14 * time.Millisecond)
+			defer ticker.Stop()
+			for range ticker.C {
+				p := math.Min(1.0, float64(time.Since(start))/float64(dur))
+				ease := 1 - math.Pow(1-p, 3)
+				a := uint8(255 * (1 - ease))
+				fyne.Do(func() {
+					overlay.FillColor = color.NRGBA{R: 0x0F, G: 0x0F, B: 0x12, A: a}
+					overlay.Refresh()
+					if p >= 1 {
+						overlay.Hide()
+					}
+				})
+				if p >= 1 {
+					break
+				}
+			}
+		}()
+	})
+}
+
 func (app *App) buildSidebarWithContent(mods []module.Module, proc *win.Process, onTabSwitch func(int)) (fyne.CanvasObject, fyne.CanvasObject) {
 	initialContent := app.buildTabContent(app.activeTab, mods)
 	sidebar := app.buildSidebar(onTabSwitch)
@@ -205,7 +231,6 @@ func (app *App) buildTabContent(tab int, mods []module.Module) fyne.CanvasObject
 	}
 }
 
-// buildModulesContent — вертикальный список модулей
 func (app *App) buildModulesContent(mods []module.Module) fyne.CanvasObject {
 	var rows []fyne.CanvasObject
 	for _, m := range mods {
@@ -216,7 +241,6 @@ func (app *App) buildModulesContent(mods []module.Module) fyne.CanvasObject {
 	return container.NewVScroll(padded)
 }
 
-// findToggleRecursive рекурсивно ищет M3Toggle в дереве объектов.
 func findToggleRecursive(objects []fyne.CanvasObject) *modulesutil.M3Toggle {
 	for _, obj := range objects {
 		if t, ok := obj.(*modulesutil.M3Toggle); ok {
@@ -231,7 +255,6 @@ func findToggleRecursive(objects []fyne.CanvasObject) *modulesutil.M3Toggle {
 	return nil
 }
 
-// buildModuleRow — строка модуля с красной подсветкой при активации
 func (app *App) buildModuleRow(m module.Module) fyne.CanvasObject {
 	accentBar := canvas.NewRectangle(color.Transparent)
 	accentBar.CornerRadius = 2
@@ -322,7 +345,7 @@ func (app *App) buildConfigsContent() fyne.CanvasObject {
 		w.Show()
 	})
 
-	section := createSettingsSectionObj(
+	section := createSettingsSection(
 		app.t("Файлы конфигурации", "Configuration files"),
 		container.NewVBox(exportBtn, importBtn, resetBtn),
 	)
@@ -337,7 +360,6 @@ func (app *App) buildConfigsContent() fyne.CanvasObject {
 }
 
 func (app *App) buildSidebar(onTabSwitch func(int)) fyne.CanvasObject {
-	// Логотип
 	logoZ := ctxt("z", accentRed, 20)
 	logoZ.TextStyle = fyne.TextStyle{Bold: true}
 	logoUtil := ctxt("Utility", textPrimary, 20)
@@ -425,7 +447,6 @@ func (app *App) buildSidebar(onTabSwitch func(int)) fyne.CanvasObject {
 		container.NewVBox(navItems...),
 	)
 
-	// Minecraft-карточка внизу сайдбара
 	dot := canvas.NewRectangle(accentGreen)
 	dot.CornerRadius = 3.5
 	dot.SetMinSize(fyne.NewSize(7, 7))
@@ -483,7 +504,6 @@ func (app *App) buildSidebar(onTabSwitch func(int)) fyne.CanvasObject {
 	return container.NewStack(sidebarBg, minSizer, sidebarContent)
 }
 
-// sizedBox — прозрачный виджет с фиксированным MinSize.
 type sizedBox struct {
 	widget.BaseWidget
 	w, h float32
@@ -508,7 +528,6 @@ func ctxt(s string, c color.Color, size float32) *canvas.Text {
 	return t
 }
 
-// navTapArea — кликабельная область с hover-эффектом.
 type navTapArea struct {
 	widget.BaseWidget
 	onTap     func()
