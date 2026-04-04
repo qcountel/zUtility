@@ -181,9 +181,14 @@ func (app *App) toggleWindowVisibility() {
 			app.winMu.Unlock()
 			time.Sleep(150 * time.Millisecond)
 			app.winMu.Lock()
+			// Window might have been closed while we slept without the lock.
+			if app.win == nil {
+				app.winMu.Unlock()
+				return
+			}
 		}
 		app.win.Show()
-		app.win.Resize(fyne.NewSize(520, 720))
+		app.win.Resize(fyne.NewSize(660, 720))
 		procShowWindowAPI.Call(hwnd, swShowNormal)
 		procSetForegroundWindowAPI.Call(hwnd)
 		app.win.RequestFocus()

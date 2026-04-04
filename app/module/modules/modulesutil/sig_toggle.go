@@ -59,7 +59,6 @@ func (m *SigToggleModule) lazyToggler() (*win.SignatureNopToggler, error) {
 		return nil, fmt.Errorf("init toggler: %w", err)
 	}
 	m.toggler = t
-	_ = m.toggler.Set(m.toggler.Enabled())
 	return t, nil
 }
 

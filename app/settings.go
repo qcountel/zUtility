@@ -187,6 +187,18 @@ func (app *App) ExportConfig(parent fyne.Window) {
 				cfg.Value = valuer.Value()
 			}
 
+			if valuer, ok := m.(interface{ MaxValue() float64 }); ok {
+				cfg.MaxValue = valuer.MaxValue()
+			}
+
+			if moder, ok := m.(interface{ ModeInt() int }); ok {
+				cfg.Mode = moder.ModeInt()
+			}
+
+			if vker, ok := m.(interface{ BindVK() uint32 }); ok {
+				cfg.BindVK = vker.BindVK()
+			}
+
 			settings.Modules = append(settings.Modules, cfg)
 		}
 		app.modulesMu.Unlock()
@@ -253,6 +265,19 @@ func (app *App) ImportConfig(parent fyne.Window) {
 					if setter, ok := m.(interface{ SetValue(float64) }); ok && cfg.Value != 0 {
 						setter.SetValue(cfg.Value)
 					}
+
+					if setter, ok := m.(interface{ SetMaxValue(float64) }); ok && cfg.MaxValue != 0 {
+						setter.SetMaxValue(cfg.MaxValue)
+					}
+
+					if setter, ok := m.(interface{ SetModeInt(int) }); ok {
+						setter.SetModeInt(cfg.Mode)
+					}
+
+					if setter, ok := m.(interface{ SetBindVK(uint32) }); ok && cfg.BindVK != 0 {
+						setter.SetBindVK(cfg.BindVK)
+					}
+
 					break
 				}
 			}
