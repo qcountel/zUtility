@@ -37,6 +37,7 @@ type App struct {
 	modules   []module.Module
 	modulesMu sync.Mutex
 
+	activeTab      int
 	minimizeToTray bool
 	showSettings   bool
 	showHotkey     uint32
@@ -108,6 +109,17 @@ func (app *App) updateTrayMenu() {
 		}),
 	)
 	desk.SetSystemTrayMenu(menu)
+}
+
+// animateToSettings switches the UI to the settings tab (tab index 2).
+func (app *App) animateToSettings() {
+	app.activeTab = 2
+	if app.win == nil {
+		return
+	}
+	nc, _, _ := app.createContent(app.tr.Process())
+	app.win.SetContent(nc)
+	app.win.Resize(fyne.NewSize(520, 720))
 }
 
 var ErrAppClosed = errors.New("app closed")

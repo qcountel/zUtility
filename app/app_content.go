@@ -219,8 +219,6 @@ func (app *App) buildModulesContent(mods []module.Module) fyne.CanvasObject {
 
 
 // findToggleRecursive рекурсивно ищет M3Toggle в дереве объектов.
-// Нужно потому что некоторые модули (noFire, Int32PointerModule) оборачивают
-// тогл в контейнер вместо того чтобы возвращать его напрямую.
 func findToggleRecursive(objects []fyne.CanvasObject) *modulesutil.M3Toggle {
 	for _, obj := range objects {
 		if t, ok := obj.(*modulesutil.M3Toggle); ok {
@@ -276,7 +274,7 @@ func (app *App) buildModuleRow(m module.Module) fyne.CanvasObject {
 		if enabled {
 			accentBar.FillColor = accentRed
 			nameText.Color = accentRedBright
-			cardBg.FillColor = calpha(accentRed, 0x16) // ~9% красного
+			cardBg.FillColor = calpha(accentRed, 0x16)
 		} else {
 			accentBar.FillColor = color.Transparent
 			nameText.Color = textPrimary
@@ -290,8 +288,6 @@ func (app *App) buildModuleRow(m module.Module) fyne.CanvasObject {
 	// Начальное состояние
 	updateState(m.IsEnabled())
 
-	// Перехватываем OnChange у M3Toggle (ищем рекурсивно — некоторые модули
-	// оборачивают тогл в container.New(), поэтому плоский поиск не работает).
 	if toggle := findToggleRecursive(controls); toggle != nil {
 		prev := toggle.OnChange
 		toggle.OnChange = func(enabled bool) {
@@ -342,7 +338,7 @@ func (app *App) buildConfigsContent() fyne.CanvasObject {
 		w.Show()
 	})
 
-	section := createSettingsSectionObj(
+	section := createSettingsSection(
 		app.t("Файлы конфигурации", "Configuration files"),
 		container.NewVBox(exportBtn, importBtn, resetBtn),
 	)
@@ -392,7 +388,7 @@ func (app *App) buildSidebar(onTabSwitch func(int)) fyne.CanvasObject {
 	updateActive := func(activeTab int) {
 		for i, nb := range btns {
 			if i == activeTab {
-				nb.bg.FillColor = calpha(accentRed, 0x18)  // очень лёгкий красный фон
+				nb.bg.FillColor = calpha(accentRed, 0x18)
 				nb.bar.FillColor = accentRed
 				nb.text.Color = accentRedBright
 			} else {
@@ -410,11 +406,9 @@ func (app *App) buildSidebar(onTabSwitch func(int)) fyne.CanvasObject {
 		idx := i
 		tabIdx := tab.tab
 
-		// Фон кнопки (прозрачный, только лёгкий тинт для активного)
 		bg := canvas.NewRectangle(color.Transparent)
 		bg.CornerRadius = 4
 
-		// Левая полоска активного
 		bar := canvas.NewRectangle(color.Transparent)
 		bar.SetMinSize(fyne.NewSize(3, 0))
 		bar.CornerRadius = 2
@@ -433,7 +427,6 @@ func (app *App) buildSidebar(onTabSwitch func(int)) fyne.CanvasObject {
 		row := container.NewBorder(nil, nil, bar, nil, labelPadded)
 		item := container.NewStack(bg, row)
 
-		// Прозрачный тапабл без hover-эффекта
 		tap := newNavTapArea(func() {
 			app.activeTab = tabIdx
 			updateActive(tabIdx)
@@ -448,14 +441,12 @@ func (app *App) buildSidebar(onTabSwitch func(int)) fyne.CanvasObject {
 	)
 
 	// Minecraft-карточка внизу сайдбара
-	// Маленькая зелёная точка-статус (вместо квадрата MC)
 	dot := canvas.NewRectangle(accentGreen)
 	dot.CornerRadius = 3.5
 	dot.SetMinSize(fyne.NewSize(7, 7))
 	dotBox := container.NewStack(newSizedBox(7, 7), dot)
 	dotPadded := container.New(layout.NewCustomPaddedLayout(4, 0, 0, 8), dotBox)
 
-	// Название + версия
 	mcTitle := ctxt("Minecraft", textPrimary, 11)
 	mcTitle.TextStyle = fyne.TextStyle{Bold: true}
 	mcSub := ctxt("PE 1.1.5 • UWP", calpha(accentGreen, 0xAA), 9)
@@ -465,7 +456,6 @@ func (app *App) buildSidebar(onTabSwitch func(int)) fyne.CanvasObject {
 	)
 	mcLeft := container.NewHBox(dotPadded, mcTextCol)
 
-	// Кнопка запуска — иконка ▶ (центрируем в боксе)
 	playIcon := ctxt("▶", calpha(accentGreen, 0xDD), 13)
 	playBg := canvas.NewRectangle(calpha(accentGreen, 0x1A))
 	playBg.CornerRadius = 6
@@ -481,7 +471,6 @@ func (app *App) buildSidebar(onTabSwitch func(int)) fyne.CanvasObject {
 
 	mcRow := container.NewBorder(nil, nil, mcLeft, playBox)
 
-	// Фон карточки с зелёным тинтом
 	mcCardBg := canvas.NewRectangle(calpha(accentGreen, 0x0D))
 	mcCardBg.CornerRadius = 8
 	mcCard := container.NewStack(
@@ -510,7 +499,7 @@ func (app *App) buildSidebar(onTabSwitch func(int)) fyne.CanvasObject {
 }
 
 
-// sizedBox — прозрачный виджет с фиксированным MinSize (для размещения canvas.Circle).
+// sizedBox — прозрачный виджет с фиксированным MinSize.
 type sizedBox struct {
 	widget.BaseWidget
 	w, h float32
@@ -535,7 +524,7 @@ func ctxt(s string, c color.Color, size float32) *canvas.Text {
 	return t
 }
 
-// navTapArea — кликабельная область с мягким hover-эффектом (белый ~4%).
+// navTapArea — кликабельная область с мягким hover-эффектом.
 type navTapArea struct {
 	widget.BaseWidget
 	onTap     func()
@@ -561,7 +550,7 @@ func (a *navTapArea) Tapped(_ *fyne.PointEvent) {
 }
 
 func (a *navTapArea) MouseIn(_ *desktop.MouseEvent) {
-	a.hoverRect.FillColor = color.NRGBA{R: 0xFF, G: 0xFF, B: 0xFF, A: 0x0A} // белый 4%
+	a.hoverRect.FillColor = color.NRGBA{R: 0xFF, G: 0xFF, B: 0xFF, A: 0x0A}
 	a.hoverRect.Refresh()
 }
 
@@ -625,3 +614,6 @@ func (app *App) autoSave() {
 		app.conf.Logger.Error("auto-save failed", "err", err)
 	}
 }
+
+// suppress unused variable warning for bgElevated
+var _ = bgElevated
