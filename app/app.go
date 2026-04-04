@@ -39,6 +39,7 @@ type App struct {
 
 	minimizeToTray bool
 	showSettings   bool
+	showPacks      bool
 	showHotkey     uint32
 	language       string
 }

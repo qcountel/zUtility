@@ -1,0 +1,12 @@
+[
+  {
+    "name": "Example Pack 1",
+    "image_url": "https://raw.githubusercontent.com/qcountel/zUtility/main/assets/pack_placeholder.png",
+    "download_url": "https://example.com/pack1.zip"
+  },
+  {
+    "name": "Example Pack 2",
+    "image_url": "https://raw.githubusercontent.com/qcountel/zUtility/main/assets/pack_placeholder.png",
+    "download_url": "https://example.com/pack2.zip"
+  }
+]

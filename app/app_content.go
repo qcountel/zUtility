@@ -51,6 +51,9 @@ func (app *App) createContent(proc *win.Process) (fyne.CanvasObject, []module.Mo
 	if app.showSettings {
 		return app.createSettingsContent(), nil, nil
 	}
+	if app.showPacks {
+		return app.createPacksContent(), nil, nil
+	}
 
 	app.modulesMu.Lock()
 	existingMods := app.modules
@@ -129,6 +132,11 @@ func (app *App) buildHeader() fyne.CanvasObject {
 		),
 	)
 
+	packsBtn := widget.NewButtonWithIcon("", theme.ListIcon(), func() {
+		app.animateToPacks()
+	})
+	packsBtn.Importance = widget.LowImportance
+
 	settingsBtn := widget.NewButtonWithIcon("", theme.SettingsIcon(), func() {
 		app.animateToSettings()
 	})
@@ -145,7 +153,7 @@ func (app *App) buildHeader() fyne.CanvasObject {
 	})
 	launchBtn.Importance = widget.LowImportance
 
-	btnRow := container.NewHBox(launchBtn, settingsBtn)
+	btnRow := container.NewHBox(launchBtn, packsBtn, settingsBtn)
 	topRow := container.NewBorder(nil, nil, logoBox, btnRow)
 
 	headerBg := canvas.NewRectangle(bgCard)
