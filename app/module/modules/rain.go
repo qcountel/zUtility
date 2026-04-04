@@ -69,6 +69,7 @@ type rain struct {
 	// NOP patch addresses (cached forever — code doesn't move)
 	rainNopAddr  atomic.Uintptr
 	lightNopAddr atomic.Uintptr
+	nopApplied   atomic.Bool
 }
 
 func (*rain) Name() string        { return "Rain" }
@@ -95,13 +96,21 @@ func (r *rain) Enable() {
 	if r.enabled.Load() {
 		return
 	}
+	r.enabled.Store(true)
+
+	// Try NOP patch — optional, needed for servers.
+	// If it fails we still run polling (works in singleplayer).
 	if err := r.applyNops(); err != nil {
 		if r.errFn != nil {
 			r.errFn(err)
 		}
-		return
 	}
-	r.enabled.Store(true)
+
+	// Write rain immediately (don't wait for first ticker)
+	if addr, err := r.getWeatherAddr(); err == nil {
+		_ = win.WriteMemory[float32](r.proc, addr+rainOffsetRain, 1.0)
+	}
+
 	r.startPolling()
 }
 
@@ -109,14 +118,16 @@ func (r *rain) Disable() {
 	if !r.enabled.Load() {
 		return
 	}
+	r.enabled.Store(false)
 	r.stopPolling()
-	// Immediately write 0 so rain disappears right away
+
+	// Write 0 immediately
 	if addr, err := r.getWeatherAddr(); err == nil {
 		_ = win.WriteMemory[float32](r.proc, addr+rainOffsetRain, 0.0)
 		_ = win.WriteMemory[float32](r.proc, addr+rainOffsetLightning, 0.0)
 	}
+
 	r.restoreNops()
-	r.enabled.Store(false)
 }
 
 // --- Polling loop ---
@@ -220,14 +231,22 @@ func (r *rain) applyNops() error {
 	if err := win.Patch(r.proc, rainAddr, nop); err != nil {
 		return err
 	}
-	return win.Patch(r.proc, lightAddr, nop)
+	if err := win.Patch(r.proc, lightAddr, nop); err != nil {
+		return err
+	}
+	r.nopApplied.Store(true)
+	return nil
 }
 
 func (r *rain) restoreNops() {
+	if !r.nopApplied.Load() {
+		return
+	}
 	if addr := r.rainNopAddr.Load(); addr != 0 {
 		_ = win.Patch(r.proc, addr, rainMovssOrig[:])
 	}
 	if addr := r.lightNopAddr.Load(); addr != 0 {
 		_ = win.Patch(r.proc, addr, lightMovssOrig[:])
 	}
+	r.nopApplied.Store(false)
 }
