@@ -1,12 +1,8 @@
 [
   {
-    "name": "Example Pack 1",
-    "image_url": "https://raw.githubusercontent.com/qcountel/zUtility/main/assets/pack_placeholder.png",
-    "download_url": "https://example.com/pack1.zip"
-  },
-  {
-    "name": "Example Pack 2",
-    "image_url": "https://raw.githubusercontent.com/qcountel/zUtility/main/assets/pack_placeholder.png",
-    "download_url": "https://example.com/pack2.zip"
+    "name": "285 Pack",
+    "description": "Ресурспак для Minecraft PE 1.1.5",
+    "image_url": "https://raw.githubusercontent.com/qcountel/packs/main/previews/5298611478913030095_121.jpg",
+    "download_url": "https://raw.githubusercontent.com/qcountel/packs/main/packs/285%20-%201.1.5.mcpack"
   }
 ]
