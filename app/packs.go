@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"image"
+	"image/color"
 	_ "image/jpeg"
 	_ "image/png"
 	"io"
@@ -115,12 +116,19 @@ func (app *App) buildResourcePacksContent() fyne.CanvasObject {
 			scroll.Content = container.New(layout.NewCustomPaddedLayout(20, 20, 20, 20),
 				ctxt(app.t("Ничего не найдено", "Nothing found"), textSecondary, 12))
 		} else {
-			// Pad to even count so the last card doesn't stretch to full width
-			if len(cards)%2 != 0 {
-				cards = append(cards, container.New(layout.NewCustomPaddedLayout(4, 4, 6, 6)))
+			// Build rows manually — each row is its own 2-column grid.
+			// This guarantees the last odd card never stretches to full width.
+			var rows []fyne.CanvasObject
+			for i := 0; i < len(cards); i += 2 {
+				if i+1 < len(cards) {
+					rows = append(rows, container.NewGridWithColumns(2, cards[i], cards[i+1]))
+				} else {
+					empty := canvas.NewRectangle(color.Transparent)
+					rows = append(rows, container.NewGridWithColumns(2, cards[i], empty))
+				}
 			}
-			grid := container.NewGridWithColumns(2, cards...)
-			scroll.Content = container.New(layout.NewCustomPaddedLayout(4, 4, 4, 4), grid)
+			scroll.Content = container.New(layout.NewCustomPaddedLayout(4, 4, 4, 4),
+				container.NewVBox(rows...))
 		}
 		scroll.Refresh()
 	}
