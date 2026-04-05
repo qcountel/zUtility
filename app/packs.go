@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"image"
-	"image/color"
 	_ "image/jpeg"
 	_ "image/png"
 	"io"
@@ -60,85 +59,37 @@ func (t *tappableImage) Tapped(_ *fyne.PointEvent) {
 
 func (t *tappableImage) TappedSecondary(_ *fyne.PointEvent) {}
 
-// showImageZoom displays the given image in a full-window overlay with fade-in animation.
+// showImageZoom displays the given image in a full-window modal popup.
 func (app *App) showImageZoom(src image.Image) {
 	if src == nil {
 		return
 	}
 
-	overlay := app.win.Canvas().Overlays()
-
-	// Dark background
-	bg := canvas.NewRectangle(color.NRGBA{R: 0, G: 0, B: 0, A: 0})
-	bg.CornerRadius = 0
-
-	// Big image
 	bigImg := canvas.NewImageFromImage(src)
 	bigImg.FillMode = canvas.ImageFillContain
 	bigImg.ScaleMode = canvas.ImageScaleSmooth
 
-	// Inner image container with padding
-	imgBox := container.New(layout.NewCustomPaddedLayout(40, 40, 40, 40), bigImg)
+	var popup *widget.PopUp
 
-	// Close button
-	var closeOverlay func()
 	closeBtn := widget.NewButtonWithIcon("", theme.CancelIcon(), func() {
-		closeOverlay()
+		if popup != nil {
+			popup.Hide()
+		}
 	})
 	closeBtn.Importance = widget.LowImportance
 
-	closeBtnBox := container.New(layout.NewCustomPaddedLayout(12, 0, 0, 12), closeBtn)
-	closeRow := container.NewBorder(nil, nil, nil, closeBtnBox)
+	closeBtnRow := container.NewHBox(layout.NewSpacer(), closeBtn)
 
-	content := container.NewBorder(closeRow, nil, nil, nil, imgBox)
-
-	// Tap on background closes overlay
-	bgTap := newTappableSurface(func() { closeOverlay() })
-	overlayWidget := container.NewStack(bgTap, bg, content)
-
-	closeOverlay = func() {
-		overlay.Remove(overlayWidget)
-	}
-
-	overlay.Add(overlayWidget)
-
-	// Fade-in animation for background
-	anim := canvas.NewColorRGBAAnimation(
-		color.NRGBA{R: 0, G: 0, B: 0, A: 0},
-		color.NRGBA{R: 0, G: 0, B: 0, A: 210},
-		200*time.Millisecond,
-		func(c color.Color) {
-			bg.FillColor = c
-			bg.Refresh()
-		},
+	content := container.NewBorder(
+		container.New(layout.NewCustomPaddedLayout(8, 0, 8, 0), closeBtnRow),
+		nil, nil, nil,
+		container.New(layout.NewCustomPaddedLayout(8, 16, 16, 16), bigImg),
 	)
-	anim.Start()
-}
 
-// tappableSurface is an invisible tappable widget that covers its full area.
-type tappableSurface struct {
-	widget.BaseWidget
-	onTap func()
+	popup = widget.NewModalPopUp(content, app.win.Canvas())
+	popup.Resize(app.win.Canvas().Size())
+	popup.Show()
 }
-
-func newTappableSurface(onTap func()) *tappableSurface {
-	t := &tappableSurface{onTap: onTap}
-	t.ExtendBaseWidget(t)
-	return t
-}
-
-func (t *tappableSurface) CreateRenderer() fyne.WidgetRenderer {
-	bg := canvas.NewRectangle(color.NRGBA{0, 0, 0, 0})
-	return widget.NewSimpleRenderer(bg)
-}
-
-func (t *tappableSurface) Tapped(_ *fyne.PointEvent) {
-	if t.onTap != nil {
-		t.onTap()
-	}
-}
-
-func (t *tappableSurface) TappedSecondary(_ *fyne.PointEvent) {}
 
 // buildResourcePacksContent fetches packs.json and builds the scrollable grid UI with search.
 func (app *App) buildResourcePacksContent() fyne.CanvasObject {
@@ -147,7 +98,7 @@ func (app *App) buildResourcePacksContent() fyne.CanvasObject {
 
 	scroll := container.NewVScroll(widget.NewLabel(""))
 
-	// allPacks stores the full list
+	// allPacks stores the full list; filtered by search query
 	var allPacks []Pack
 
 	// Grid rebuild function — filters allPacks by query and updates scroll
@@ -164,15 +115,19 @@ func (app *App) buildResourcePacksContent() fyne.CanvasObject {
 			scroll.Content = container.New(layout.NewCustomPaddedLayout(20, 20, 20, 20),
 				ctxt(app.t("Ничего не найдено", "Nothing found"), textSecondary, 12))
 		} else {
+			// Pad to even count so the last card doesn't stretch to full width
+			if len(cards)%2 != 0 {
+				cards = append(cards, container.New(layout.NewCustomPaddedLayout(4, 4, 6, 6)))
+			}
 			grid := container.NewGridWithColumns(2, cards...)
 			scroll.Content = container.New(layout.NewCustomPaddedLayout(4, 4, 4, 4), grid)
 		}
 		scroll.Refresh()
 	}
 
-	// Search field
+	// Search field — no emoji icon to avoid rendering issues on Windows
 	searchEntry := widget.NewEntry()
-	searchEntry.SetPlaceHolder(app.t("\U0001f50d  Поиск по названию...", "\U0001f50d  Search by name..."))
+	searchEntry.SetPlaceHolder(app.t("Поиск по названию...", "Search by name..."))
 	searchEntry.OnChanged = func(q string) {
 		rebuildGrid(q)
 	}
@@ -265,14 +220,14 @@ func (app *App) buildPackCard(p Pack) fyne.CanvasObject {
 	// Store loaded image for zoom
 	var loadedSrc image.Image
 
-	// Tappable image wrapper — opens zoom overlay on click
+	// Tappable image wrapper — opens zoom modal on click
 	tapImg := newTappableImage(img, func() {
 		if loadedSrc != nil {
 			app.showImageZoom(loadedSrc)
 		}
 	})
 
-	// Fixed-height wrapper — ширина тянется по карточке, высота строго 140px
+	// Fixed-height wrapper — width stretches with card, height is 140px
 	imgFixed := container.New(fixedHeightLayout{140}, tapImg)
 
 	// Async image load
@@ -323,10 +278,10 @@ func (app *App) buildPackCard(p Pack) fyne.CanvasObject {
 			err := installMcpack(p.Name, p.DownloadURL)
 			fyne.Do(func() {
 				if err != nil {
-					statusLabel.Text = "\u2717 " + err.Error()
+					statusLabel.Text = "✗ " + err.Error()
 					statusLabel.Color = accentOrange
 				} else {
-					statusLabel.Text = "\u2713 " + app.t("Установлен", "Installed")
+					statusLabel.Text = "✓ " + app.t("Установлен", "Installed")
 					statusLabel.Color = accentGreen
 				}
 				statusLabel.Refresh()
@@ -370,6 +325,7 @@ func minecraftPackPaths(name string) []string {
 	var result []string
 	for _, pkg := range packages {
 		base := filepath.Join(localAppData, pkg)
+		// check parent exists (resource_packs may not exist yet but com.mojang should)
 		parent := filepath.Dir(base)
 		if _, err := os.Stat(parent); err == nil {
 			result = append(result, filepath.Join(base, sanitizeName(name)))
@@ -414,7 +370,7 @@ func installMcpack(name, downloadURL string) error {
 		for _, f := range zr.File {
 			destPath := filepath.Join(packDir, f.Name)
 			if !strings.HasPrefix(filepath.Clean(destPath), filepath.Clean(packDir)) {
-				continue
+				continue // zip-slip protection
 			}
 			if f.FileInfo().IsDir() {
 				os.MkdirAll(destPath, 0755)
