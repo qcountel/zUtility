@@ -1,0 +1,17 @@
+# Compiled binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+zUtility
+zUtility_test
+
+# Local scratch files
+scratch/
+.idea/
+.vscode/
+
+# OS-specific files
+.DS_Store
+Thumbs.db
