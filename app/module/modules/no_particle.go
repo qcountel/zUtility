@@ -1,35 +1,52 @@
 package modules
 
 import (
+	"fmt"
+
 	"github.com/something-that-is-cool/zutil/app/module"
 	"github.com/something-that-is-cool/zutil/app/module/modules/modulesutil"
-	"github.com/something-that-is-cool/zutil/internal/pkg/win"
+	"github.com/something-that-is-cool/zutil/pkg/e"
+	"github.com/something-that-is-cool/zutil/pkg/win"
+	"github.com/something-that-is-cool/zutil/pkg/win/mem"
 )
 
-var _ module.Module = (*noParticle)(nil)
+var noParticleSettings = modulesutil.Settings{
+	Signature: mem.MustParseSignature("E8 ? ? ? ? FF 84 B7"),
+	PatchFunc: modulesutil.PatchFuncExtendNop(5),
+}
 
-var particleSig = []byte{0xE8, 0x68, 0x4F, 0xCF, 0xFF}
+var _ module.Config = (*NoParticle)(nil)
 
 type NoParticle struct {
-	Process     *win.Process
-	Error       func(error)
-	AfterChange func()
+	modulesutil.DefaultDisabled
+	Process  *win.Process
+	Error    func(error)
+	OnToggle func(bool, e.ActionCause)
 }
 
-func (conf NoParticle) Create() module.Module {
-	return &noParticle{SigToggleModule: &modulesutil.SigToggleModule{
-		Signature:   particleSig,
-		Process:     conf.Process,
-		Error:       conf.Error,
-		AfterChange: conf.AfterChange,
-	}}
+func (conf *NoParticle) Create(p module.Property, cause e.ActionCause) (module.Module, error) {
+	c := &modulesutil.ByteToggleModule{
+		Settings: noParticleSettings,
+		Process:  conf.Process,
+		Error:    conf.Error,
+		OnToggle: conf.OnToggle,
+	}
+	b, err := c.New()
+	if err != nil {
+		return nil, fmt.Errorf("create byte toggle module: %w", err)
+	}
+	if cause == nil {
+		cause = e.ActionCauseExternal
+	}
+	m := modulesutil.NewBaseToggleable(b,
+		"no particle",
+		"disables particle rendering",
+	)
+	m.Edit(p, cause)
+	return m, nil
 }
 
-type noParticle struct {
-	*modulesutil.SigToggleModule
-}
-
-func (*noParticle) Name() string { return "NoParticle" }
-func (*noParticle) Description() string {
-	return "Отключает частицы для более чистой картинки и высокого FPS."
+// Identifier ...
+func (*NoParticle) Identifier() string {
+	return "no_particle"
 }

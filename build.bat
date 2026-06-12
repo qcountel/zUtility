@@ -1,26 +1,9 @@
-@echo off
-echo [zUtility] Building...
+for /f "tokens=*" %%i in ('git describe --tags --always') do set GIT_VERSION=%%i
+for /f "tokens=*" %%i in ('git rev-parse --short HEAD') do set GIT_COMMIT=%%i
 
-:: Copy icon
-echo [icon] Copying assets\icon.png -> pkg\embeddable\icon.png
-copy /Y assets\icon.png pkg\embeddable\icon.png >nul
+set PKG=github.com/something-that-is-cool/zutil/internal/version
 
-:: Try to generate app.syso (requires rsrc tool), skip if not available
-where rsrc >nul 2>nul
-if %errorlevel% == 0 (
-    echo [icon] Generating app.syso from assets\icon.ico
-    rsrc -manifest app.exe.manifest -ico assets\icon.ico -o app.syso
-) else (
-    echo [icon] rsrc not found - skipping icon embedding
+if not exist app.syso (
+    rsrc -manifest app.exe.manifest -o app.syso
 )
-
-:: Build
-go build -ldflags="-s -w -H=windowsgui" -tags no_emoji -o zUtility.exe .
-if %errorlevel% neq 0 (
-    echo [ERROR] Build failed!
-    pause
-    exit /b 1
-)
-
-echo [zUtility] Done! Output: zUtility.exe
-pause
+go build -ldflags="-s -w -X '%PKG%.Version=%GIT_VERSION%' -X '%PKG%.Commit=%GIT_COMMIT%'" -tags no_emoji -o zutil.exe

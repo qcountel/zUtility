@@ -7,18 +7,28 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unsafe"
 
-	"fyne.io/fyne/v2"
-	fyneapp "fyne.io/fyne/v2/app"
-	"fyne.io/fyne/v2/dialog"
-	"fyne.io/fyne/v2/widget"
+	w "golang.org/x/sys/windows"
+
+	gioapp "gioui.org/app"
+	"gioui.org/io/system"
+	"gioui.org/layout"
+	"gioui.org/op"
+	"gioui.org/unit"
+	"gioui.org/widget"
+	"gioui.org/widget/material"
+
 	"github.com/something-that-is-cool/zutil/app/module"
-	"github.com/something-that-is-cool/zutil/internal/pkg/fyneutil"
-	"github.com/something-that-is-cool/zutil/internal/pkg/win"
-	"github.com/something-that-is-cool/zutil/pkg/embeddable"
+	"github.com/something-that-is-cool/zutil/internal/misc"
+	"github.com/something-that-is-cool/zutil/pkg/e"
+	"github.com/something-that-is-cool/zutil/pkg/win"
+	"github.com/something-that-is-cool/zutil/pkg/win/hotkey"
 )
 
-const Name = "zUtility"
+const Name = "zutil"
+
+var ActionCauseUserInput = e.NewActionCause("user input")
 
 type App struct {
 	ctx    context.Context
@@ -26,241 +36,361 @@ type App struct {
 
 	conf Config
 
-	app fyne.App
-
-	win   fyne.Window
-	winMu sync.Mutex
-
 	wg sync.WaitGroup
 
 	tr *win.ProcessTracker
+	hm *hotkey.Manager
 
-	closed, started atomic.Bool
+	closed atomic.Bool
 
-	modules     []module.Module
-	modulesMu   sync.Mutex
-	autoClicker *autoClicker
+	win *gioapp.Window
+	ops op.Ops
 
-	minimizeToTray     bool
-	animationsEnabled  bool
-	useClonedMinecraft bool
-	showSettings       bool
-	startedAt          time.Time
-	updatePromptShown  atomic.Bool
+	userConf misc.ValueWithMutex[*UserConfig]
 
-	updateMu    sync.RWMutex
-	updateState UpdateStatus
+	data misc.ValueWithMutex[struct {
+		started, init          bool
+		uConfInit, modulesInit bool
+		modules                *modulesMap
+	}]
 
-	// activeTab — индекс активной вкладки в боковом меню
-	// 0="Модули", 1="Конфигурация", 2="Ресурспаки", 3=Настройки, 4="Кликер"
-	activeTab int
+	// Gio UI states
+	listState  layout.List
+	lightTheme bool
 
-	installedView       fyne.CanvasObject
-	refreshInstalled    func()
-	installedPacksDirty bool
+	// UI States for modules
+	moduleToggleStates   map[string]*widget.Bool
+	moduleSliderStates   map[string]*widget.Float
+	moduleSliderInputs   map[string]*widget.Editor
+	moduleSettingsClicks map[string]*widget.Clickable
+
+	// Main Settings Click States
+	settingsClick       widget.Clickable
+	aboutClick          widget.Clickable
+	toggleThemeClick    widget.Clickable
+	importConfigClick   widget.Clickable
+	exportConfigClick   widget.Clickable
+	resetConfigClick    widget.Clickable
+	showErrorsCheck     widget.Bool
+
+	// Overlay states (modal dialogs in Gio)
+	showSettingsOverlay bool
+	showModuleOverlay   bool
+	activeOverlayModule module.Module
+	activeOverlayConfig module.Config
+	closeOverlayClick   widget.Clickable
+	descButtonClick     widget.Clickable
+	bindButtonClick     widget.Clickable
+
+	showBindOverlay      bool
+	activeBindModule     module.Module
+	activeBindModuleConf module.Config
+	closeBindClick       widget.Clickable
+	resetBindClick       widget.Clickable
+	charBindClicks       map[string]*widget.Clickable
+	bindListState        layout.List
+
+	// Alerts
+	alertMessage string
+	alertTitle   string
+	alertShow    bool
+	alertClick   widget.Clickable
+
+	// Cached UI static data
+	cachedModules []moduleEntry
+	iconSettings  *widget.Icon
+	iconInfo      *widget.Icon
+
+	blockerClick        widget.Clickable
+	joinControllinClick widget.Clickable
+
+	moduleToggleProgress map[string]float32
 }
 
-func (app *App) init(proc *win.Process) ([]module.Module, error) {
-	app.winMu.Lock()
-	defer app.winMu.Unlock()
-	a := fyneapp.New()
-	fyneutil.AccentColor = accentRed
-	a.Settings().SetTheme(&fyneutil.CrimsonDarkTheme{})
-	app.app = a
-
-	app.win = a.NewWindow(Name)
-	app.win.SetMaster()
-	app.win.CenterOnScreen()
-	app.win.Resize(fyne.NewSize(520, 720))
-	app.win.SetFixedSize(true)
-
-	var needRestore int32 // atomic flag: 1 = был свёрнут/потерял фокус
-
-	a.Lifecycle().SetOnExitedForeground(func() {
-		atomic.StoreInt32(&needRestore, 1)
-	})
-
-	a.Lifecycle().SetOnEnteredForeground(func() {
-		if !atomic.CompareAndSwapInt32(&needRestore, 1, 0) {
-			return // флаг не стоял — первый запуск или повторный вызов
-		}
-		// fyne.Do ставит фикс в очередь главного потока.
-		// EnteredForeground срабатывает во время обработки событий GLFW,
-		// поэтому fyne.Do выполнится ДО следующего кадра рендера —
-		// пользователь не увидит ни одного сломанного кадра.
-		fyne.Do(func() {
-			if app.win == nil {
-				return
-			}
-			sz := app.win.Canvas().Size()
-			app.win.Resize(fyne.NewSize(sz.Width+1, sz.Height)) // ломаем кэш canvas.size
-			app.win.Resize(sz)                                  // возвращаем точный размер
-			app.win.Canvas().Refresh(app.win.Content())
-		})
-	})
-
-	if icon, err := embeddable.LoadIcon(); err == nil {
-		app.app.SetIcon(icon)
-		app.win.SetIcon(icon)
+func (app *App) initUnsafe(proc *win.Process) (err error) {
+	if app.data.V.init {
+		return e.ErrAlreadyInitialized
 	}
+	app.data.V.init = true
 
-	app.win.SetCloseIntercept(func() {
+	app.initStates()
 
-		if app.minimizeToTray {
-			app.win.Hide()
-		} else {
-
-			if err := app.SaveConfig(); err != nil {
-				app.conf.Logger.Error("failed to save config on close", "err", err)
-			}
-			_ = app.Close(true)
-		}
-	})
-
-	app.updateTrayMenu()
-
-	c, modules, err := app.createContent(proc)
+	app.userConf.Lock()
+	app.userConf.V, err = app.loadUserConfigUnsafe()
 	if err != nil {
-		return nil, fmt.Errorf("create content: %w", err)
+		app.userConf.Unlock()
+		return fmt.Errorf("load user config: %w", err)
 	}
-	app.win.SetContent(c)
-	return modules, nil
+	app.data.V.uConfInit = true
+	app.lightTheme = app.userConf.V.LightTheme
+
+	showErrors := app.userConf.V.ShowErrors
+	app.userConf.Unlock()
+
+	app.conf.Logger.Debug("creating module configs...")
+	configs := app.setupModules(proc)
+	if len(configs) == 0 {
+		return errors.New("no modules created")
+	}
+	app.conf.Logger.Debug("created module configs.")
+
+	app.conf.Logger.Debug("creating modules from configs...")
+	modules, ok, err := app.createModulesFromConfigs(configs)
+	if !ok && err != nil {
+		return fmt.Errorf("create modules from configs: %w", err)
+	}
+	if err != nil {
+		app.conf.Logger.Error("error creating modules from configs", "err", err.Error())
+		if showErrors {
+			app.showError("create module(s) from config(s)", err)
+		}
+	} else {
+		app.conf.Logger.Debug("created modules from configs.")
+	}
+	app.data.V.modules = modules
+	app.data.V.modulesInit = true
+
+	app.initCachedModules(modules)
+
+	app.userConf.Lock()
+	app.hm = hotkey.ManagerConfig{Handlers: app.loadBinds(app.userConf.V)}.New()
+	app.userConf.Unlock()
+
+	return nil
 }
 
-func (app *App) updateTrayMenu() {
-	desk, ok := app.app.(interface{ SetSystemTrayMenu(*fyne.Menu) })
-	if !ok {
-		return
-	}
-	menu := fyne.NewMenu("zUtility",
-		fyne.NewMenuItem("Показать", func() {
-			app.win.Show()
-			app.win.Content().Refresh()
-		}),
-		fyne.NewMenuItem("Скрыть", func() {
-			app.win.Hide()
-		}),
-		fyne.NewMenuItemSeparator(),
-		fyne.NewMenuItem("Выход", func() {
-			if err := app.SaveConfig(); err != nil {
-				app.conf.Logger.Error("failed to save config on exit", "err", err)
-			}
-			_ = app.Close(true)
-		}),
+func (app *App) initStates() {
+	app.listState.Axis = layout.Vertical
+	app.bindListState.Axis = layout.Vertical
+	app.moduleToggleStates = make(map[string]*widget.Bool)
+	app.moduleSliderStates = make(map[string]*widget.Float)
+	app.moduleSliderInputs = make(map[string]*widget.Editor)
+	app.moduleSettingsClicks = make(map[string]*widget.Clickable)
+	app.charBindClicks = make(map[string]*widget.Clickable)
+}
+
+const windowWidth, windowHeight = 450, 650
+
+func (app *App) deployGio() {
+	app.win = &gioapp.Window{}
+	app.win.Option(
+		gioapp.Title(Name),
+		gioapp.MinSize(unit.Dp(windowWidth), unit.Dp(windowHeight)),
+		gioapp.MaxSize(unit.Dp(windowWidth), unit.Dp(windowHeight)),
 	)
-	desk.SetSystemTrayMenu(menu)
 }
 
-var ErrAppClosed = errors.New("app closed")
-var ErrAlreadyRunning = errors.New("app is already running")
-
+// Run ...
 func (app *App) Run() error {
 	if app.closed.Load() {
-		return ErrAppClosed
+		return e.ErrClosed
 	}
-	if !app.started.CompareAndSwap(false, true) {
-		return ErrAlreadyRunning
-	}
-	if app.startedAt.IsZero() {
-		app.startedAt = time.Now()
-	}
-
-	// init создаёт все модули и первоначальный UI.
-	modules, err := app.init(app.tr.Process())
+	done, err := app.run()
 	if err != nil {
-		return fmt.Errorf("init: %w", err)
+		return err
 	}
-	app.modulesMu.Lock()
-	app.modules = modules
-	app.modulesMu.Unlock()
 
-	// Defaults before LoadConfig — animations are on by default (bool zero-value is false).
-	app.animationsEnabled = true
-	AnimationsEnabled = true
-	if err := app.LoadConfig(); err != nil {
-		app.conf.Logger.Error("failed to load config", "err", err)
-	}
-	app.StartUpdateCheck(func(status UpdateStatus) {
-		if !status.HasUpdate || status.Checking || status.Downloading || status.Error != "" {
-			return
-		}
-		if !app.updatePromptShown.CompareAndSwap(false, true) {
-			return
-		}
-		fyne.Do(func() {
-			app.showStartupUpdatePrompt(status)
-		})
-	})
-	app.updateTrayMenu()
+	app.conf.Logger.Info("running window...")
 
-	go func() {
-		<-app.ctx.Done()
-		if err := app.Close(false); err != nil && !errors.Is(err, ErrAppClosed) {
-			app.conf.Logger.Error("close app", "err", err.Error())
-		}
-	}()
-	go func() {
-		defer app.tr.Close()
-		if err := app.tr.Run(app.ctx); err != nil {
-			_ = app.Close(false)
-		}
-	}()
-	app.win.ShowAndRun()
-	return nil
-}
+	app.applyWindowsDarkMode()
 
-func (app *App) Close(main bool) error {
-	if !app.closed.CompareAndSwap(false, true) {
-		return ErrAppClosed
-	}
-	func() {
-		app.modulesMu.Lock()
-		defer app.modulesMu.Unlock()
-		for _, m := range app.modules {
-			m.Disable()
-		}
-	}()
-	if app.autoClicker != nil {
-		app.autoClicker.Close()
-	}
-	app.cancel()
-	app.tr.Close()
+	th := material.NewTheme()
 
-	app.wg.Wait()
-	if !main {
-		fyne.DoAndWait(app.closeWin)
-	} else {
-		app.closeWin()
-	}
-	return nil
-}
-
-func (app *App) closeWin() {
-	app.winMu.Lock()
-	defer app.winMu.Unlock()
-
-	if app.win != nil {
-		app.win.Close()
-	}
-}
-
-func (app *App) showStartupUpdatePrompt(status UpdateStatus) {
-	if app.win == nil {
-		return
-	}
-	message := widget.NewLabel(fmt.Sprintf("Доступна новая версия %s.\nСкачать и заменить текущую утилиту сейчас?", status.LatestVersion))
-	message.Wrapping = fyne.TextWrapWord
-	dialog.ShowCustomConfirm(
-		"Доступно обновление",
-		"Скачать",
-		"Пропустить",
-		message,
-		func(confirm bool) {
-			if !confirm {
-				return
+	for {
+		winEv := app.win.Event()
+		switch ev := winEv.(type) {
+		case gioapp.DestroyEvent:
+			app.conf.Logger.Info("window closed via UI")
+			close(done)
+			if err := app.Close(); err != nil && !errors.Is(err, e.ErrAlreadyClosed) {
+				app.conf.Logger.Error("close app via ui", "err", err.Error())
 			}
-			app.DownloadLatestReleaseAsset(nil)
-		},
-		app.win,
-	)
+			return ev.Err
+		case gioapp.FrameEvent:
+			gtx := gioapp.NewContext(&app.ops, ev)
+			app.layout(gtx, th)
+			ev.Frame(gtx.Ops)
+		}
+	}
 }
+
+func (app *App) run() (chan struct{}, error) {
+	app.data.Lock()
+	defer app.data.Unlock()
+
+	if app.data.V.started {
+		return nil, e.ErrAlreadyRunning
+	}
+	app.conf.Logger.Info("initializing...")
+	if err := app.initUnsafe(app.tr.Process()); err != nil {
+		return nil, fmt.Errorf("init: %w", err)
+	}
+	app.conf.Logger.Info("initialized.")
+
+	done := make(chan struct{})
+	go func() {
+		select {
+		case <-app.ctx.Done():
+			if err := app.close(closeCauseContextClosed); err != nil && !errors.Is(err, e.ErrAlreadyClosed) {
+				app.conf.Logger.Error("close app", "err", err.Error())
+			}
+		case <-done:
+		}
+	}()
+	app.runBackgroundTasks()
+	app.data.V.started = true
+	return done, nil
+}
+
+func (app *App) runBackgroundTasks() {
+	go func() {
+		if err := app.tr.Run(app.ctx); err != nil && !errors.Is(err, context.Canceled) {
+			app.conf.Logger.Error("process tracker error", "err", err)
+		}
+	}()
+	app.wg.Go(func() {
+		if err := app.hm.Run(app.ctx); err != nil && !errors.Is(err, context.Canceled) {
+			app.conf.Logger.Error("hotkey manager error", "err", err)
+		}
+	})
+}
+
+// Close implements io.Closer.
+func (app *App) Close() error {
+	return app.close(nil, true)
+}
+
+var (
+	closeCauseTrackerClosed = e.NewCloseCauseString("tracker closed")
+	closeCauseContextClosed = e.NewCloseCause(context.Canceled)
+)
+
+func (app *App) close(cause e.CloseCause, main ...bool) (multi error) {
+	if err := app.closeLogic(cause); err != nil && errors.Is(err, e.ErrAlreadyClosed) {
+		return err
+	}
+	app.conf.Logger.Debug("closing window...", "main", misc.HasTrueOption(main))
+	app.win.Perform(system.ActionClose)
+	return nil
+}
+
+func (app *App) closeLogic(cause e.CloseCause) error {
+	if !app.closed.CompareAndSwap(false, true) {
+		return e.ErrAlreadyClosed
+	}
+	start := time.Now()
+	if cause == nil {
+		cause = e.CloseCauseExternal
+	}
+	app.conf.Logger.Info("closing app logic...", "cause", cause.Error())
+	defer func() {
+		app.conf.Logger.Info("closed app logic.", "elapsed", time.Since(start).String())
+	}()
+	app.closeIfStarted(cause)
+	app.conf.Logger.Debug("waiting for waitgroup end...")
+	app.wg.Wait()
+	app.conf.Logger.Debug("waitgroup ended.")
+	return nil
+}
+
+func (app *App) closeIfStarted(cause e.CloseCause) {
+	app.data.Lock()
+	defer app.data.Unlock()
+
+	defer func() {
+		app.cancel()
+		app.doClose("process tracker", app.tr.CloseWithProcess)
+	}()
+	if app.data.V.uConfInit {
+		app.saveUserConfig()
+	}
+	if app.data.V.modulesInit && !e.CloseCauseIs(cause, closeCauseTrackerClosed) {
+		app.disableModulesUnsafe()
+	}
+}
+
+func (app *App) disableModulesUnsafe() {
+	app.conf.Logger.Debug("disabling modules...")
+	defer app.conf.Logger.Debug("disabled modules.")
+
+	for _, m := range app.data.V.modules.AllFromFront() {
+		m.Disable(actionCauseModuleDisabled)
+		app.conf.Logger.Debug("disabled module.", "module", m.Name())
+	}
+}
+
+func (app *App) doClose(src string, fn func() error) {
+	if err := fn(); err != nil {
+		app.conf.Logger.Error("an error occurred when closing", "src", src, "err", err.Error())
+	}
+}
+
+func (app *App) moduleByIDUnsafe(id string) (module.Module, bool) {
+	for conf, m := range app.data.V.modules.AllFromFront() {
+		if conf.Identifier() == id {
+			return m, true
+		}
+	}
+	return nil, false
+}
+
+func (app *App) doModuleUpdates(toEdit map[module.Module]module.Property, cause e.ActionCause) {
+	app.conf.Logger.Debug("updating modules state...", "cause", cause.String())
+	defer app.conf.Logger.Debug("updated modules state.")
+
+	for m, p := range toEdit {
+		m.Edit(p, cause)
+	}
+}
+
+func (app *App) showError(src string, err error) {
+	app.alertTitle = "Error: " + src
+	app.alertMessage = err.Error()
+	app.alertShow = true
+	if app.win != nil {
+		app.win.Invalidate()
+	}
+}
+
+func (app *App) showInfo(title, msg string) {
+	app.alertTitle = title
+	app.alertMessage = msg
+	app.alertShow = true
+	if app.win != nil {
+		app.win.Invalidate()
+	}
+}
+
+var (
+	modDwmapi                  = w.NewLazySystemDLL("dwmapi.dll")
+	procDwmSetWindowAttribute = modDwmapi.NewProc("DwmSetWindowAttribute")
+	modUser32                  = w.NewLazySystemDLL("user32.dll")
+	procFindWindowW            = modUser32.NewProc("FindWindowW")
+)
+
+const DWMWA_USE_IMMERSIVE_DARK_MODE = 20
+
+func (app *App) applyWindowsDarkMode() {
+	go func() {
+		titlePtr, _ := w.UTF16PtrFromString(Name)
+		// Try multiple times to find the window as it takes a brief moment to initialize
+		for i := 0; i < 50; i++ {
+			time.Sleep(50 * time.Millisecond)
+			hwnd, _, _ := procFindWindowW.Call(0, uintptr(unsafe.Pointer(titlePtr)))
+			if hwnd != 0 {
+				var val int32 = 1 // default dark mode enabled
+				if app.lightTheme {
+					val = 0
+				}
+				procDwmSetWindowAttribute.Call(
+					hwnd,
+					DWMWA_USE_IMMERSIVE_DARK_MODE,
+					uintptr(unsafe.Pointer(&val)),
+					unsafe.Sizeof(val),
+				)
+				break
+			}
+		}
+	}()
+}
+

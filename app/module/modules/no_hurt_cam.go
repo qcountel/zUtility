@@ -1,35 +1,52 @@
 package modules
 
 import (
+	"fmt"
+
 	"github.com/something-that-is-cool/zutil/app/module"
 	"github.com/something-that-is-cool/zutil/app/module/modules/modulesutil"
-	"github.com/something-that-is-cool/zutil/internal/pkg/win"
+	"github.com/something-that-is-cool/zutil/pkg/e"
+	"github.com/something-that-is-cool/zutil/pkg/win"
+	"github.com/something-that-is-cool/zutil/pkg/win/mem"
 )
 
-var _ module.Module = (*noHurtCam)(nil)
+var noHurtCamSettings = modulesutil.Settings{
+	Signature: mem.MustParseSignature("66 44 0F 6E 83 ? ? ? ? 45 0F 5B C0 44 0F 29 4C 24"),
+	PatchFunc: modulesutil.PatchFuncExtendNop(9),
+}
 
-var noHurtCamSig = []byte{0x66, 0x44, 0x0F, 0x6E, 0x83, 0x6C, 0x0E, 0x00, 0x00}
+var _ module.Config = (*NoHurtCam)(nil)
 
 type NoHurtCam struct {
-	Process     *win.Process
-	Error       func(error)
-	AfterChange func()
+	modulesutil.DefaultDisabled
+	Process  *win.Process
+	Error    func(error)
+	OnToggle func(bool, e.ActionCause)
 }
 
-func (conf NoHurtCam) Create() module.Module {
-	return &noHurtCam{SigToggleModule: &modulesutil.SigToggleModule{
-		Signature:   noHurtCamSig,
-		Process:     conf.Process,
-		Error:       conf.Error,
-		AfterChange: conf.AfterChange,
-	}}
+func (conf *NoHurtCam) Create(p module.Property, cause e.ActionCause) (module.Module, error) {
+	c := &modulesutil.ByteToggleModule{
+		Settings: noHurtCamSettings,
+		Process:  conf.Process,
+		Error:    conf.Error,
+		OnToggle: conf.OnToggle,
+	}
+	b, err := c.New()
+	if err != nil {
+		return nil, fmt.Errorf("create byte toggle module: %w", err)
+	}
+	if cause == nil {
+		cause = e.ActionCauseExternal
+	}
+	m := modulesutil.NewBaseToggleable(b,
+		"no hurt cam",
+		"prevents camera shaking when player hurt",
+	)
+	m.Edit(p, cause)
+	return m, nil
 }
 
-type noHurtCam struct {
-	*modulesutil.SigToggleModule
-}
-
-func (*noHurtCam) Name() string { return "NoHurtCam" }
-func (*noHurtCam) Description() string {
-	return "Отключает тряску камеры при получении урона."
+// Identifier ...
+func (*NoHurtCam) Identifier() string {
+	return "no_hurt_cam"
 }

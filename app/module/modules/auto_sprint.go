@@ -1,39 +1,57 @@
 package modules
 
 import (
+	"fmt"
+
 	"github.com/something-that-is-cool/zutil/app/module"
 	"github.com/something-that-is-cool/zutil/app/module/modules/modulesutil"
-	"github.com/something-that-is-cool/zutil/internal/pkg/win"
+	"github.com/something-that-is-cool/zutil/pkg/asm"
+	"github.com/something-that-is-cool/zutil/pkg/e"
+	"github.com/something-that-is-cool/zutil/pkg/win"
+	"github.com/something-that-is-cool/zutil/pkg/win/mem"
 )
 
-var _ module.Module = (*autoSprint)(nil)
+var autoSprintSettings = modulesutil.Settings{
+	Signature: mem.MustParseSignature("0F B6 41 ? 40 32 ED"),
+	PatchFunc: modulesutil.PatchFuncExtendBuilder(asm.Build().
+		MovAxImm8(0x1).
+		X().
+		XorChBpl(),
+	),
+}
 
-var (
-	autoSprintSig   = []byte{0x0F, 0xB6, 0x41, 0x63, 0x40, 0x32, 0xED}
-	autoSprintPatch = []byte{0x66, 0xB8, 0x01, 0x00, 0x40, 0x30, 0xED}
-)
+var _ module.Config = (*AutoSprint)(nil)
 
 type AutoSprint struct {
-	Process     *win.Process
-	Error       func(error)
-	AfterChange func()
+	modulesutil.DefaultDisabled
+	Process  *win.Process
+	Error    func(error)
+	OnToggle func(bool, e.ActionCause)
 }
 
-func (conf AutoSprint) Create() module.Module {
-	return &autoSprint{ByteToggleModule: &modulesutil.ByteToggleModule{
-		Signature:   autoSprintSig,
-		Patch:       autoSprintPatch,
-		Process:     conf.Process,
-		Error:       conf.Error,
-		AfterChange: conf.AfterChange,
-	}}
+func (conf *AutoSprint) Create(p module.Property, cause e.ActionCause) (module.Module, error) {
+	c := &modulesutil.ByteToggleModule{
+		Settings: autoSprintSettings,
+		Process:  conf.Process,
+		Error:    conf.Error,
+		OnToggle: conf.OnToggle,
+	}
+	b, err := c.New()
+	if err != nil {
+		return nil, fmt.Errorf("create byte toggle module: %w", err)
+	}
+	if cause == nil {
+		cause = e.ActionCauseExternal
+	}
+	m := modulesutil.NewBaseToggleable(b,
+		"auto sprint",
+		"automatically sprints for you",
+	)
+	m.Edit(p, cause)
+	return m, nil
 }
 
-type autoSprint struct {
-	*modulesutil.ByteToggleModule
-}
-
-func (*autoSprint) Name() string { return "AutoSprint" }
-func (*autoSprint) Description() string {
-	return "Постоянный спринт без удержания клавиши."
+// Identifier ...
+func (*AutoSprint) Identifier() string {
+	return "auto_sprint"
 }

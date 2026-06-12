@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/something-that-is-cool/zutil/internal/pkg/win"
+	"github.com/something-that-is-cool/zutil/pkg/win"
 )
 
 type Config struct {
@@ -14,6 +14,8 @@ type Config struct {
 	Process string
 }
 
+// New tries to create new App instance from Config, allowing to provide custom
+// context to control app lifecycle.
 func (conf Config) New(parent context.Context) (*App, error) {
 	if conf.Process == "" {
 		return nil, errors.New("empty process")
@@ -27,8 +29,8 @@ func (conf Config) New(parent context.Context) (*App, error) {
 	}
 	app := &App{conf: conf}
 	trackerConf := win.ProcessTrackerConfig{
-		Handlers: []func(){func() {
-			_ = app.Close(false)
+		OnClose: []func(){func() {
+			_ = app.close(closeCauseTrackerClosed)
 		}},
 		Process: proc,
 	}
@@ -36,6 +38,7 @@ func (conf Config) New(parent context.Context) (*App, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create tracker: %w", err)
 	}
+	app.deployGio()
 	app.ctx, app.cancel = context.WithCancel(parent)
 	return app, nil
 }
