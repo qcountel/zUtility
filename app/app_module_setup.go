@@ -20,6 +20,10 @@ func (app *App) setupModules(proc *win.Process) []module.Config {
 		app.createItemDelayFixModule(proc),
 		app.createNoCamResetModule(proc),
 		app.createOffVsyncModule(proc),
+		app.createCustomSkyModule(proc),
+		app.createCustomSkyRModule(proc),
+		app.createCustomSkyGModule(proc),
+		app.createCustomSkyBModule(proc),
 	}
 }
 
@@ -89,6 +93,35 @@ func (app *App) createOffVsyncModule(proc *win.Process) module.Config {
 	conf := &modules.OffVsync{Process: proc}
 	conf.Error = app.onError(conf.Identifier())
 	conf.OnToggle = app.onModuleToggled(conf.Identifier())
+	return conf
+}
+
+func (app *App) createCustomSkyModule(proc *win.Process) module.Config {
+	conf := &modules.CustomSky{Process: proc}
+	conf.Error = app.onError(conf.Identifier())
+	conf.OnToggle = app.onModuleToggled(conf.Identifier())
+	conf.GetModule = app.moduleByIDUnsafe
+	return conf
+}
+
+func (app *App) createCustomSkyRModule(proc *win.Process) module.Config {
+	conf := &modules.CustomSkyR{Process: proc}
+	conf.Error = app.onError(conf.Identifier())
+	conf.OnValueChanged = onModuleValueChanged[float64](app, conf.Identifier())
+	return conf
+}
+
+func (app *App) createCustomSkyGModule(proc *win.Process) module.Config {
+	conf := &modules.CustomSkyG{Process: proc}
+	conf.Error = app.onError(conf.Identifier())
+	conf.OnValueChanged = onModuleValueChanged[float64](app, conf.Identifier())
+	return conf
+}
+
+func (app *App) createCustomSkyBModule(proc *win.Process) module.Config {
+	conf := &modules.CustomSkyB{Process: proc}
+	conf.Error = app.onError(conf.Identifier())
+	conf.OnValueChanged = onModuleValueChanged[float64](app, conf.Identifier())
 	return conf
 }
 

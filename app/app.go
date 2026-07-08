@@ -120,6 +120,9 @@ type App struct {
 
 	appIconOp     paint.ImageOp
 	appIconLoaded bool
+
+	// Color presets clicks
+	presetClicks [6]widget.Clickable
 }
 
 func (app *App) initUnsafe(proc *win.Process) (err error) {
@@ -420,5 +423,43 @@ func (app *App) applyWindowsDarkMode() {
 			}
 		}
 	}()
+}
+
+func (app *App) setCustomSkyPreset(r, g, b float64) {
+	app.data.Lock()
+	defer app.data.Unlock()
+
+	// Need to import modulesutil in app.go if not imported, let's check
+	// Wait, we can just use type assertion:
+	if mr, ok := app.moduleByIDUnsafe("custom_sky_r"); ok {
+		if valMod, ok2 := mr.(interface {
+			SetValue(v float64, cause e.ActionCause, opts ...any) error
+		}); ok2 {
+			_ = valMod.SetValue(r, ActionCauseUserInput)
+		}
+		if slider, exists := app.moduleSliderStates["custom_sky_r"]; exists {
+			slider.Value = float32(r)
+		}
+	}
+	if mg, ok := app.moduleByIDUnsafe("custom_sky_g"); ok {
+		if valMod, ok2 := mg.(interface {
+			SetValue(v float64, cause e.ActionCause, opts ...any) error
+		}); ok2 {
+			_ = valMod.SetValue(g, ActionCauseUserInput)
+		}
+		if slider, exists := app.moduleSliderStates["custom_sky_g"]; exists {
+			slider.Value = float32(g)
+		}
+	}
+	if mb, ok := app.moduleByIDUnsafe("custom_sky_b"); ok {
+		if valMod, ok2 := mb.(interface {
+			SetValue(v float64, cause e.ActionCause, opts ...any) error
+		}); ok2 {
+			_ = valMod.SetValue(b, ActionCauseUserInput)
+		}
+		if slider, exists := app.moduleSliderStates["custom_sky_b"]; exists {
+			slider.Value = float32(b)
+		}
+	}
 }
 

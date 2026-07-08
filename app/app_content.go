@@ -344,7 +344,11 @@ func (app *App) layoutModulesList(gtx layout.Context, th *material.Theme) layout
 										)
 
 										scaledVal := scaleFloat(valState.Value, minVal, maxVal)
-										if math.Abs(float64(scaledVal-float32(val))) > 0.5 {
+										epsilon := float32(0.5)
+										if maxVal < 10 {
+											epsilon = 0.005
+										}
+										if math.Abs(float64(scaledVal-float32(val))) > float64(epsilon) {
 											_ = f.SetValue(float64(scaledVal), ActionCauseUserInput)
 										}
 
