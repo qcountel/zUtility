@@ -28,6 +28,6 @@ func (app *App) themeCardBg() color.NRGBA {
 	if app.lightTheme {
 		return color.NRGBA{R: 255, G: 255, B: 255, A: 255}
 	}
-	return color.NRGBA{R: 23, G: 26, B: 38, A: 255}
+	return color.NRGBA{R: 0x0D, G: 0x0D, B: 0x0D, A: 255}
 }
 

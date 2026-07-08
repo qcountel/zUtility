@@ -8,6 +8,10 @@ import (
 	"sync/atomic"
 	"time"
 	"unsafe"
+	"os"
+	_ "image/png"
+	"image"
+	"gioui.org/op/paint"
 
 	w "golang.org/x/sys/windows"
 
@@ -57,29 +61,37 @@ type App struct {
 	// Gio UI states
 	listState  layout.List
 	lightTheme bool
+	activeTab  int // 0: modules, 1: config, 2: packs, 3: clicker, 4: settings
+
+	useClonedMinecraft bool
+
+	// Tab navigation clicks
+	tabClickModules  widget.Clickable
+	tabClickConfig   widget.Clickable
+	tabClickSettings widget.Clickable
+	playClick        widget.Clickable
 
 	// UI States for modules
 	moduleToggleStates   map[string]*widget.Bool
 	moduleSliderStates   map[string]*widget.Float
 	moduleSliderInputs   map[string]*widget.Editor
 	moduleSettingsClicks map[string]*widget.Clickable
+	moduleCardClicks     map[string]*widget.Clickable
 
 	// Main Settings Click States
-	settingsClick       widget.Clickable
 	aboutClick          widget.Clickable
 	toggleThemeClick    widget.Clickable
 	importConfigClick   widget.Clickable
 	exportConfigClick   widget.Clickable
 	resetConfigClick    widget.Clickable
 	showErrorsCheck     widget.Bool
+	showErrorsClick     widget.Clickable
 
 	// Overlay states (modal dialogs in Gio)
-	showSettingsOverlay bool
 	showModuleOverlay   bool
 	activeOverlayModule module.Module
 	activeOverlayConfig module.Config
 	closeOverlayClick   widget.Clickable
-	descButtonClick     widget.Clickable
 	bindButtonClick     widget.Clickable
 
 	showBindOverlay      bool
@@ -100,11 +112,14 @@ type App struct {
 	cachedModules []moduleEntry
 	iconSettings  *widget.Icon
 	iconInfo      *widget.Icon
+	iconPlay      *widget.Icon
 
 	blockerClick        widget.Clickable
-	joinControllinClick widget.Clickable
 
-	moduleToggleProgress map[string]float32
+	tabAnimProgress      float32
+
+	appIconOp     paint.ImageOp
+	appIconLoaded bool
 }
 
 func (app *App) initUnsafe(proc *win.Process) (err error) {
@@ -112,6 +127,15 @@ func (app *App) initUnsafe(proc *win.Process) (err error) {
 		return e.ErrAlreadyInitialized
 	}
 	app.data.V.init = true
+
+	// Load app icon
+	if f, err := os.Open("app/icon.png"); err == nil {
+		if img, _, err := image.Decode(f); err == nil {
+			app.appIconOp = paint.NewImageOp(img)
+			app.appIconLoaded = true
+		}
+		f.Close()
+	}
 
 	app.initStates()
 
@@ -123,6 +147,7 @@ func (app *App) initUnsafe(proc *win.Process) (err error) {
 	}
 	app.data.V.uConfInit = true
 	app.lightTheme = app.userConf.V.LightTheme
+	app.useClonedMinecraft = app.userConf.V.UseClonedMinecraft
 
 	showErrors := app.userConf.V.ShowErrors
 	app.userConf.Unlock()
@@ -166,6 +191,7 @@ func (app *App) initStates() {
 	app.moduleSliderStates = make(map[string]*widget.Float)
 	app.moduleSliderInputs = make(map[string]*widget.Editor)
 	app.moduleSettingsClicks = make(map[string]*widget.Clickable)
+	app.moduleCardClicks = make(map[string]*widget.Clickable)
 	app.charBindClicks = make(map[string]*widget.Clickable)
 }
 
@@ -296,6 +322,8 @@ func (app *App) closeLogic(cause e.CloseCause) error {
 func (app *App) closeIfStarted(cause e.CloseCause) {
 	app.data.Lock()
 	defer app.data.Unlock()
+
+
 
 	defer func() {
 		app.cancel()

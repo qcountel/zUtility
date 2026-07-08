@@ -7,6 +7,7 @@ import (
 	"math"
 	"os/exec"
 	"strings"
+	"syscall"
 
 	"gioui.org/font"
 	"gioui.org/io/semantic"
@@ -44,7 +45,20 @@ func descaleFloat(val, min, max float32) float32 {
 func (app *App) layout(gtx layout.Context, th *material.Theme) layout.Dimensions {
 	app.syncGioTheme(th)
 
-	paint.Fill(gtx.Ops, th.Palette.Bg)
+	if !app.lightTheme {
+		bounds := image.Rect(0, 0, gtx.Constraints.Max.X, gtx.Constraints.Max.Y)
+		paint.LinearGradientOp{
+			Stop1:  layout.FPt(bounds.Min),
+			Stop2:  layout.FPt(bounds.Max),
+			Color1: color.NRGBA{R: 0x0A, G: 0x09, B: 0x1A, A: 0xFF}, // Darker cosmic
+			Color2: color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0xFF},
+		}.Add(gtx.Ops)
+		cl := clip.Rect(bounds).Push(gtx.Ops)
+		paint.PaintOp{}.Add(gtx.Ops)
+		cl.Pop()
+	} else {
+		paint.Fill(gtx.Ops, th.Palette.Bg)
+	}
 
 	return layout.Stack{}.Layout(gtx,
 		layout.Stacked(func(gtx layout.Context) layout.Dimensions {
@@ -52,13 +66,30 @@ func (app *App) layout(gtx layout.Context, th *material.Theme) layout.Dimensions
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					return app.layoutHeader(gtx, th)
 				}),
-				layout.Flexed(1.0, func(gtx layout.Context) layout.Dimensions {
-					return app.layoutModulesList(gtx, th)
-				}),
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					return app.layoutFooter(gtx, th)
+					return app.layoutToolbar(gtx, th)
+				}),
+				layout.Flexed(1.0, func(gtx layout.Context) layout.Dimensions {
+					var dims layout.Dimensions
+					switch app.activeTab {
+					case 1:
+						dims = app.layoutConfigsTab(gtx, th)
+					case 4:
+						dims = app.layoutSettingsTab(gtx, th)
+					default:
+						dims = app.layoutModulesList(gtx, th)
+					}
+					return dims
 				}),
 			)
+		}),
+		layout.Stacked(func(gtx layout.Context) layout.Dimensions {
+			if app.alertShow || app.showModuleOverlay || app.showBindOverlay {
+				return app.blockerClick.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+					return layout.Dimensions{Size: gtx.Constraints.Max}
+				})
+			}
+			return layout.Dimensions{}
 		}),
 		layout.Stacked(func(gtx layout.Context) layout.Dimensions {
 			if !app.alertShow {
@@ -67,12 +98,6 @@ func (app *App) layout(gtx layout.Context, th *material.Theme) layout.Dimensions
 			return app.layoutModalOverlay(gtx, th, app.alertTitle, app.alertMessage, func() {
 				app.alertShow = false
 			}, &app.alertClick)
-		}),
-		layout.Stacked(func(gtx layout.Context) layout.Dimensions {
-			if !app.showSettingsOverlay {
-				return layout.Dimensions{}
-			}
-			return app.layoutSettingsOverlay(gtx, th)
 		}),
 		layout.Stacked(func(gtx layout.Context) layout.Dimensions {
 			if !app.showModuleOverlay {
@@ -92,49 +117,65 @@ func (app *App) layout(gtx layout.Context, th *material.Theme) layout.Dimensions
 func (app *App) syncGioTheme(th *material.Theme) {
 	if app.lightTheme {
 		th.Palette = material.Palette{
-			Bg:         color.NRGBA{R: 0xF8, G: 0xFA, B: 0xFC, A: 0xFF}, // Slate-50
-			Fg:         color.NRGBA{R: 0x0F, G: 0x17, B: 0x2A, A: 0xFF}, // Slate-900
-			ContrastBg: color.NRGBA{R: 79, G: 70, B: 229, A: 0xFF},      // Indigo-600
+			Bg:         color.NRGBA{R: 0xF8, G: 0xFA, B: 0xFC, A: 0xFF},
+			Fg:         color.NRGBA{R: 0x0F, G: 0x17, B: 0x2A, A: 0xFF},
+			ContrastBg: color.NRGBA{R: 0x4F, G: 0x46, B: 0xE5, A: 0xFF},
 			ContrastFg: color.NRGBA{R: 0xFF, G: 0xFF, B: 0xFF, A: 0xFF},
 		}
 	} else {
 		th.Palette = material.Palette{
-			Bg:         color.NRGBA{R: 15, G: 17, B: 26, A: 0xFF},     // Deep slate `#0f111a`
-			Fg:         color.NRGBA{R: 241, G: 245, B: 249, A: 0xFF},  // Slate-100 `#f1f5f9`
-			ContrastBg: color.NRGBA{R: 99, G: 102, B: 241, A: 0xFF},   // Indigo accent `#6366f1`
+			Bg:         color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0xFF},
+			Fg:         color.NRGBA{R: 0xE2, G: 0xE8, B: 0xF0, A: 0xFF}, // Softer text
+			ContrastBg: color.NRGBA{R: 0x4F, G: 0x46, B: 0xE5, A: 0xFF}, // Darker Indigo accent
 			ContrastFg: color.NRGBA{R: 0xFF, G: 0xFF, B: 0xFF, A: 0xFF},
 		}
 	}
 }
 
 func (app *App) layoutHeader(gtx layout.Context, th *material.Theme) layout.Dimensions {
-	return layout.UniformInset(unit.Dp(16)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
-			layout.Flexed(1.0, func(gtx layout.Context) layout.Dimensions {
-				return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						zLbl := material.H4(th, "z")
-						zLbl.Color = th.Palette.ContrastBg
-						zLbl.Font.Weight = font.Bold
-						return zLbl.Layout(gtx)
+	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return layout.UniformInset(unit.Dp(16)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+					layout.Flexed(1.0, func(gtx layout.Context) layout.Dimensions {
+						return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
+							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+								zLbl := material.H4(th, "z")
+								zLbl.Color = th.Palette.ContrastBg
+								zLbl.Font.Typeface = "monospace"
+								zLbl.Font.Weight = font.Bold
+								return zLbl.Layout(gtx)
+							}),
+							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+								utilLbl := material.H4(th, "util-gio")
+								utilLbl.Font.Typeface = "monospace"
+								utilLbl.Font.Weight = font.Bold
+								return utilLbl.Layout(gtx)
+							}),
+						)
 					}),
+					// Play button on the far right of the header
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						utilLbl := material.H4(th, "util")
-						utilLbl.Font.Weight = font.Bold
-						return utilLbl.Layout(gtx)
+						if app.playClick.Clicked(gtx) {
+							go func() {
+								cmd := exec.Command("cmd", "/c", "start", "minecraft:")
+								cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+								_ = cmd.Run()
+							}()
+						}
+						return layoutCustomIconButton(gtx, th, &app.playClick, app.widgetIconPlay(), "Play Minecraft", unit.Dp(24), th.Palette.ContrastBg)
 					}),
 				)
-			}),
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				if app.settingsClick.Clicked(gtx) {
-					app.showSettingsOverlay = true
-				}
-				return layout.UniformInset(unit.Dp(4)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					return layoutCustomIconButton(gtx, th, &app.settingsClick, app.widgetIconSettings(), "Settings", unit.Dp(24), th.Palette.Fg)
-				})
-			}),
-		)
-	})
+			})
+		}),
+		// Bottom border line (accent color)
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			d := image.Point{X: gtx.Constraints.Max.X, Y: gtx.Dp(2)}
+			defer clip.Rect{Max: d}.Push(gtx.Ops).Pop()
+			paint.Fill(gtx.Ops, th.Palette.ContrastBg)
+			return layout.Dimensions{Size: d}
+		}),
+	)
 }
 
 func (app *App) layoutModulesList(gtx layout.Context, th *material.Theme) layout.Dimensions {
@@ -145,64 +186,105 @@ func (app *App) layoutModulesList(gtx layout.Context, th *material.Theme) layout
 	list := app.cachedModules
 
 	return layout.Inset{
-		Left:  unit.Dp(16),
-		Right: unit.Dp(16),
+		Top:   unit.Dp(12),
+		Left:  unit.Dp(12),
+		Right: unit.Dp(12),
 	}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		return app.listState.Layout(gtx, len(list), func(gtx layout.Context, index int) layout.Dimensions {
 			conf := list[index].Key
 			m := list[index].Value
 			nameLower := list[index].NameLower
 
+			cardClick := app.moduleCardClicks[conf.Identifier()]
+			if t, isToggle := m.(modulesutil.ToggleableModule); isToggle {
+				if cardClick.Clicked(gtx) {
+					newState := !t.State()
+					_ = t.UpdateState(newState, ActionCauseUserInput)
+				}
+			}
+
 			dims := layout.Inset{
-				Bottom: unit.Dp(12),
+				Bottom: unit.Dp(8),
 			}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				cardBg := app.themeCardBg()
 
+				isEnabled := false
+				if t, ok := m.(modulesutil.ToggleableModule); ok {
+					isEnabled = t.State()
+				} else if _, ok := m.(modulesutil.ModuleWithValue[float64]); ok {
+					isEnabled = true
+				}
+
 				return layout.Stack{}.Layout(gtx,
 					layout.Expanded(func(gtx layout.Context) layout.Dimensions {
-						d := image.Rectangle{Max: gtx.Constraints.Min}
-						// Background card
-						paint.FillShape(gtx.Ops, cardBg, clip.RRect{
-							Rect: d,
-							NE:   12, NW: 12, SE: 12, SW: 12,
-						}.Op(gtx.Ops))
+						return cardClick.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+							d := image.Rectangle{Max: gtx.Constraints.Min}
+							r := 0
+							
+							var finalBg color.NRGBA
+							if isEnabled {
+								if app.lightTheme {
+									finalBg = color.NRGBA{R: 0xEC, G: 0xEC, B: 0xEC, A: 0xFF}
+								} else {
+									finalBg = color.NRGBA{R: 0x1A, G: 0x18, B: 0x30, A: 0xCC} // Darker transparent cosmic for active
+								}
+							} else {
+								if app.lightTheme {
+									finalBg = cardBg
+								} else {
+									finalBg = color.NRGBA{R: 0x08, G: 0x08, B: 0x0E, A: 0x99} // Very dark inactive card
+								}
+							}
 
-						// Card border stroke (1dp)
-						borderCol := color.NRGBA{R: 0x2A, G: 0x2D, B: 0x3D, A: 0xFF}
-						if app.lightTheme {
-							borderCol = color.NRGBA{R: 0xE2, G: 0xE8, B: 0xF0, A: 0xFF}
-						}
-						strokeWidth := gtx.Dp(1)
-						rrect := clip.RRect{Rect: d, NE: 12, NW: 12, SE: 12, SW: 12}
-						cl := clip.Stroke{
-							Path:  rrect.Path(gtx.Ops),
-							Width: float32(strokeWidth),
-						}.Op().Push(gtx.Ops)
-						paint.ColorOp{Color: borderCol}.Add(gtx.Ops)
-						paint.PaintOp{}.Add(gtx.Ops)
-						cl.Pop()
+							// Background card
+							paint.FillShape(gtx.Ops, finalBg, clip.RRect{Rect: d, NE: r, NW: r, SE: r, SW: r}.Op(gtx.Ops))
 
-						return layout.Dimensions{Size: gtx.Constraints.Min}
+							// Card border stroke (2dp)
+							var borderCol color.NRGBA
+							if isEnabled {
+								borderCol = th.Palette.ContrastBg
+							} else if app.lightTheme {
+								borderCol = color.NRGBA{R: 0xDD, G: 0xDD, B: 0xDD, A: 0xFF}
+							} else {
+								borderCol = color.NRGBA{R: 0x1E, G: 0x1E, B: 0x2A, A: 0xFF} // Subtle dark border
+							}
+
+							strokeWidth := gtx.Dp(2)
+							cl := clip.Stroke{
+								Path:  clip.RRect{Rect: d, NE: r, NW: r, SE: r, SW: r}.Path(gtx.Ops),
+								Width: float32(strokeWidth),
+							}.Op().Push(gtx.Ops)
+							paint.ColorOp{Color: borderCol}.Add(gtx.Ops)
+							paint.PaintOp{}.Add(gtx.Ops)
+							cl.Pop()
+
+							return layout.Dimensions{Size: gtx.Constraints.Min}
+						})
 					}),
 					layout.Stacked(func(gtx layout.Context) layout.Dimensions {
-						return layout.Inset{
-							Top:    unit.Dp(16),
-							Bottom: unit.Dp(16),
-							Left:   unit.Dp(16),
-							Right:  unit.Dp(16),
-						}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+						return layout.UniformInset(unit.Dp(12)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 							return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 								layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 									var flexChildren []layout.FlexChild
 
-									// Title label (lowercase)
+									// Title label (uppercase monospace)
 									flexChildren = append(flexChildren, layout.Flexed(1.0, func(gtx layout.Context) layout.Dimensions {
-										nameLbl := material.Body1(th, nameLower)
+										nameLbl := material.Body1(th, strings.ToUpper(nameLower))
+										nameLbl.Font.Typeface = "monospace"
 										nameLbl.Font.Weight = font.Bold
 										return nameLbl.Layout(gtx)
 									}))
 
+									// Status indicator tag (ON/OFF pill)
+									if _, isToggle := m.(modulesutil.ToggleableModule); isToggle {
+										flexChildren = append(flexChildren, layout.Rigid(layout.Spacer{Width: unit.Dp(12)}.Layout))
+										flexChildren = append(flexChildren, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+											return layoutStatusPill(gtx, th, isEnabled)
+										}))
+									}
+
 									// Settings/Info button
+									flexChildren = append(flexChildren, layout.Rigid(layout.Spacer{Width: unit.Dp(12)}.Layout))
 									flexChildren = append(flexChildren, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 										settingsClick, exists := app.moduleSettingsClicks[conf.Identifier()]
 										if !exists {
@@ -220,29 +302,8 @@ func (app *App) layoutModulesList(gtx layout.Context, th *material.Theme) layout
 											icon = app.widgetIconInfo()
 										}
 
-										return layout.UniformInset(unit.Dp(2)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-											return layoutCustomIconButton(gtx, th, settingsClick, icon, "Module Settings", unit.Dp(20), th.Palette.Fg)
-										})
+										return layoutCustomIconButton(gtx, th, settingsClick, icon, "Module Settings", unit.Dp(20), th.Palette.Fg)
 									}))
-
-									// Spacer and Switch (only for toggleable modules)
-									if t, isToggle := m.(modulesutil.ToggleableModule); isToggle {
-										flexChildren = append(flexChildren, layout.Rigid(layout.Spacer{Width: unit.Dp(12)}.Layout))
-										flexChildren = append(flexChildren, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-											boolState, exists := app.moduleToggleStates[conf.Identifier()]
-											if !exists {
-												boolState = &widget.Bool{Value: t.State()}
-												app.moduleToggleStates[conf.Identifier()] = boolState
-											}
-											boolState.Value = t.State()
-
-											dims := app.layoutCustomSwitch(gtx, th, boolState, conf.Identifier())
-											if boolState.Value != t.State() {
-												_ = t.UpdateState(boolState.Value, ActionCauseUserInput)
-											}
-											return dims
-										}))
-									}
 
 									return layout.Flex{Alignment: layout.Middle}.Layout(gtx, flexChildren...)
 								}),
@@ -273,7 +334,11 @@ func (app *App) layoutModulesList(gtx layout.Context, th *material.Theme) layout
 											}),
 											layout.Rigid(layout.Spacer{Height: unit.Dp(4)}.Layout),
 											layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-												lbl := material.Caption(th, fmt.Sprintf("value: %.0f", val))
+												format := "value: %.0f"
+												if maxVal < 10 {
+													format = "value: %.2f"
+												}
+												lbl := material.Caption(th, fmt.Sprintf(format, val))
 												return lbl.Layout(gtx)
 											}),
 										)
@@ -297,31 +362,7 @@ func (app *App) layoutModulesList(gtx layout.Context, th *material.Theme) layout
 	})
 }
 
-func (app *App) layoutFooter(gtx layout.Context, th *material.Theme) layout.Dimensions {
-	return layout.Inset{
-		Left:   unit.Dp(16),
-		Right:  unit.Dp(16),
-		Top:    unit.Dp(12),
-		Bottom: unit.Dp(12),
-	}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
-			layout.Flexed(1.0, func(gtx layout.Context) layout.Dimensions {
-				linkBtn := material.Button(th, &app.joinControllinClick, "Join to controllin")
-				linkBtn.Background = color.NRGBA{A: 0}
-				linkBtn.Color = th.Palette.ContrastBg
-				if app.joinControllinClick.Clicked(gtx) {
-					_ = exec.Command("cmd", "/c", "start", "", "https://t.me/+rweTeGr1vOxjM2Qy").Start()
-				}
-				linkBtn.Inset = layout.UniformInset(unit.Dp(4))
-				return linkBtn.Layout(gtx)
-			}),
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				vLabel := material.Caption(th, "v1.0")
-				return vLabel.Layout(gtx)
-			}),
-		)
-	})
-}
+
 
 func (app *App) layoutModalOverlay(gtx layout.Context, th *material.Theme, title, content string, closeFunc func(), click *widget.Clickable) layout.Dimensions {
 	gtx.Constraints.Min = gtx.Constraints.Max
@@ -343,10 +384,18 @@ func (app *App) layoutModalOverlay(gtx layout.Context, th *material.Theme, title
 			return layout.Stack{}.Layout(gtx,
 				layout.Expanded(func(gtx layout.Context) layout.Dimensions {
 					d := image.Rectangle{Max: gtx.Constraints.Min}
-					paint.FillShape(gtx.Ops, cardBg, clip.RRect{
-						Rect: d,
-						NE:   16, NW: 16, SE: 16, SW: 16,
-					}.Op(gtx.Ops))
+					paint.FillShape(gtx.Ops, cardBg, clip.Rect(d).Op())
+
+					// Thick border (2dp)
+					strokeWidth := gtx.Dp(2)
+					cl := clip.Stroke{
+						Path:  clip.RRect{Rect: d}.Path(gtx.Ops),
+						Width: float32(strokeWidth),
+					}.Op().Push(gtx.Ops)
+					paint.ColorOp{Color: th.Palette.ContrastBg}.Add(gtx.Ops)
+					paint.PaintOp{}.Add(gtx.Ops)
+					cl.Pop()
+
 					return layout.Dimensions{Size: gtx.Constraints.Min}
 				}),
 				layout.Stacked(func(gtx layout.Context) layout.Dimensions {
@@ -354,7 +403,8 @@ func (app *App) layoutModalOverlay(gtx layout.Context, th *material.Theme, title
 						return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 								return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-									titleLbl := material.Body1(th, title)
+									titleLbl := material.Body1(th, strings.ToUpper(title))
+									titleLbl.Font.Typeface = "monospace"
 									titleLbl.Font.Weight = font.Bold
 									return titleLbl.Layout(gtx)
 								})
@@ -363,6 +413,7 @@ func (app *App) layoutModalOverlay(gtx layout.Context, th *material.Theme, title
 							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 								return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 									contentLbl := material.Body2(th, content)
+									contentLbl.Font.Typeface = "monospace"
 									return contentLbl.Layout(gtx)
 								})
 							}),
@@ -389,10 +440,14 @@ func (app *App) widgetIconInfo() *widget.Icon {
 	return app.iconInfo
 }
 
+func (app *App) widgetIconPlay() *widget.Icon {
+	return app.iconPlay
+}
+
 func (app *App) initCachedModules(modules *modulesMap) {
 	app.iconSettings, _ = widget.NewIcon(icons.ActionSettings)
 	app.iconInfo, _ = widget.NewIcon(icons.ActionInfo)
-	app.moduleToggleProgress = make(map[string]float32)
+	app.iconPlay, _ = widget.NewIcon(icons.AVPlayArrow)
 
 	var list []moduleEntry
 	for conf, m := range modules.AllFromFront() {
@@ -406,13 +461,9 @@ func (app *App) initCachedModules(modules *modulesMap) {
 		// Pre-initialize states maps to avoid map queries and lazy allocation in layout loop
 		id := conf.Identifier()
 		app.moduleSettingsClicks[id] = &widget.Clickable{}
+		app.moduleCardClicks[id] = &widget.Clickable{}
 		if t, isToggle := m.(modulesutil.ToggleableModule); isToggle {
 			app.moduleToggleStates[id] = &widget.Bool{Value: t.State()}
-			if t.State() {
-				app.moduleToggleProgress[id] = 1.0
-			} else {
-				app.moduleToggleProgress[id] = 0.0
-			}
 		}
 		if f, isFloat := m.(modulesutil.ModuleWithValue[float64]); isFloat {
 			val, _ := f.Value()
@@ -432,115 +483,15 @@ func (app *App) initCachedModules(modules *modulesMap) {
 
 func layoutFullWidthButton(gtx layout.Context, th *material.Theme, click *widget.Clickable, text string) layout.Dimensions {
 	gtx.Constraints.Min.X = gtx.Constraints.Max.X
-	btn := material.Button(th, click, text)
-	btn.CornerRadius = unit.Dp(6)
+	btn := material.Button(th, click, strings.ToUpper(text))
+	btn.CornerRadius = unit.Dp(0)
+	btn.Font.Typeface = "monospace"
+	btn.Font.Weight = font.Bold
 	return btn.Layout(gtx)
 }
 
-func (app *App) layoutCustomSwitch(gtx layout.Context, th *material.Theme, state *widget.Bool, moduleID string) layout.Dimensions {
-	state.Update(gtx)
 
-	trackWidth := gtx.Dp(36)
-	trackHeight := gtx.Dp(20)
-	thumbSize := gtx.Dp(16)
-	trackOff := (trackHeight - gtx.Dp(12)) / 2
-
-	// Smoothly animate the knob progress
-	currentProgress := app.moduleToggleProgress[moduleID]
-	target := float32(0.0)
-	if state.Value {
-		target = 1.0
-	}
-
-	if currentProgress != target {
-		speed := float32(0.15)
-		if currentProgress < target {
-			currentProgress += speed
-			if currentProgress > target {
-				currentProgress = target
-			}
-		} else {
-			currentProgress -= speed
-			if currentProgress < target {
-				currentProgress = target
-			}
-		}
-		app.moduleToggleProgress[moduleID] = currentProgress
-		gtx.Execute(op.InvalidateCmd{})
-	}
-
-	var trackColor color.NRGBA
-	var thumbColor color.NRGBA
-
-	// OFF colors
-	var offTrack, offThumb color.NRGBA
-	if app.lightTheme {
-		offTrack = color.NRGBA{R: 0xE2, G: 0xE8, B: 0xF0, A: 0xFF}
-		offThumb = color.NRGBA{R: 0x94, G: 0xA3, B: 0xB8, A: 0xFF}
-	} else {
-		offTrack = color.NRGBA{R: 0x1E, G: 0x29, B: 0x3B, A: 0xFF}
-		offThumb = color.NRGBA{R: 0x47, G: 0x55, B: 0x69, A: 0xFF}
-	}
-
-	// ON colors
-	onTrack := th.Palette.ContrastBg
-	onThumb := color.NRGBA{R: 255, G: 255, B: 255, A: 255}
-
-	// Linear interpolation helper
-	lerp := func(a, b uint8, t float32) uint8 {
-		return uint8(float32(a) + t*(float32(b)-float32(a)))
-	}
-
-	trackColor = color.NRGBA{
-		R: lerp(offTrack.R, onTrack.R, currentProgress),
-		G: lerp(offTrack.G, onTrack.G, currentProgress),
-		B: lerp(offTrack.B, onTrack.B, currentProgress),
-		A: lerp(offTrack.A, onTrack.A, currentProgress),
-	}
-
-	thumbColor = color.NRGBA{
-		R: lerp(offThumb.R, onThumb.R, currentProgress),
-		G: lerp(offThumb.G, onThumb.G, currentProgress),
-		B: lerp(offThumb.B, onThumb.B, currentProgress),
-		A: lerp(offThumb.A, onThumb.A, currentProgress),
-	}
-
-	// 1. Draw Track
-	trackRect := image.Rectangle{
-		Min: image.Pt(0, trackOff),
-		Max: image.Pt(trackWidth, trackOff+gtx.Dp(12)),
-	}
-	cl := clip.UniformRRect(trackRect, gtx.Dp(6)).Push(gtx.Ops)
-	paint.ColorOp{Color: trackColor}.Add(gtx.Ops)
-	paint.PaintOp{}.Add(gtx.Ops)
-	cl.Pop()
-
-	// 2. Draw Thumb
-	minX := float32(gtx.Dp(2))
-	maxX := float32(trackWidth - thumbSize - gtx.Dp(2))
-	thumbX := int(minX + currentProgress*(maxX-minX))
-	thumbY := (trackHeight - thumbSize) / 2
-
-	thumbRect := image.Rectangle{
-		Min: image.Pt(thumbX, thumbY),
-		Max: image.Pt(thumbX+thumbSize, thumbY+thumbSize),
-	}
-	cl2 := clip.Ellipse(thumbRect).Push(gtx.Ops)
-	paint.ColorOp{Color: thumbColor}.Add(gtx.Ops)
-	paint.PaintOp{}.Add(gtx.Ops)
-	cl2.Pop()
-
-	// 3. Capture clicks on the switch area without showing hover highlight
-	sz := image.Pt(trackWidth, trackHeight)
-	defer clip.Rect(image.Rectangle{Max: sz}).Push(gtx.Ops).Pop()
-	state.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		return layout.Dimensions{Size: sz}
-	})
-
-	return layout.Dimensions{Size: sz}
-}
-
-func layoutCustomIconButton(gtx layout.Context, th *material.Theme, click *widget.Clickable, icon *widget.Icon, description string, size unit.Dp, color color.NRGBA) layout.Dimensions {
+func layoutCustomIconButton(gtx layout.Context, th *material.Theme, click *widget.Clickable, icon *widget.Icon, description string, size unit.Dp, iconColor color.NRGBA) layout.Dimensions {
 	return click.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		semantic.Button.Add(gtx.Ops)
 		if description != "" {
@@ -548,16 +499,36 @@ func layoutCustomIconButton(gtx layout.Context, th *material.Theme, click *widge
 		}
 
 		iconSize := gtx.Dp(size)
-		gtx.Constraints.Min = image.Point{X: iconSize, Y: iconSize}
-		gtx.Constraints.Max = gtx.Constraints.Min
 
-		if icon != nil {
-			icon.Layout(gtx, color)
+		var bgCol color.NRGBA
+		if click.Pressed() {
+			bgCol = mulAlpha(th.Palette.ContrastBg, 80)
+		} else if click.Hovered() {
+			bgCol = color.NRGBA{R: 0x22, G: 0x22, B: 0x22, A: 0xFF}
 		}
 
-		return layout.Dimensions{
-			Size: image.Point{X: iconSize, Y: iconSize},
-		}
+		return layout.Stack{Alignment: layout.Center}.Layout(gtx,
+			layout.Expanded(func(gtx layout.Context) layout.Dimensions {
+				if bgCol.A > 0 {
+					d := image.Rectangle{Max: gtx.Constraints.Min}
+					r := 0
+					paint.FillShape(gtx.Ops, bgCol, clip.RRect{Rect: d, NE: r, NW: r, SE: r, SW: r}.Op(gtx.Ops))
+				}
+				return layout.Dimensions{Size: gtx.Constraints.Min}
+			}),
+			layout.Stacked(func(gtx layout.Context) layout.Dimensions {
+				return layout.UniformInset(unit.Dp(6)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+					if icon != nil {
+						gtx.Constraints.Min = image.Point{X: iconSize, Y: iconSize}
+						gtx.Constraints.Max = gtx.Constraints.Min
+						return icon.Layout(gtx, iconColor)
+					}
+					return layout.Dimensions{
+						Size: image.Point{X: iconSize, Y: iconSize},
+					}
+				})
+			}),
+		)
 	})
 }
 
@@ -594,32 +565,27 @@ func (app *App) layoutCustomSlider(gtx layout.Context, th *material.Theme, float
 	}
 
 	// 1. Draw track before thumb (active track with rounded corners)
-	track := rect(
+	trackActive := rect(
 		tr, sizeCross/2-trackWidth/2,
 		thumbPos, sizeCross/2+trackWidth/2,
 	)
-	cl := clip.UniformRRect(track, trackWidth/2).Push(gtx.Ops)
-	paint.ColorOp{Color: color}.Add(gtx.Ops)
-	paint.PaintOp{}.Add(gtx.Ops)
-	cl.Pop()
+	rTrack := 0
+	paint.FillShape(gtx.Ops, color, clip.RRect{Rect: trackActive, NE: rTrack, NW: rTrack, SE: rTrack, SW: rTrack}.Op(gtx.Ops))
 
 	// 2. Draw track after thumb (inactive track with rounded corners)
-	track = rect(
+	trackInactive := rect(
 		thumbPos, sizeCross/2-trackWidth/2,
 		sizeMain-tr, sizeCross/2+trackWidth/2,
 	)
-	cl2 := clip.UniformRRect(track, trackWidth/2).Push(gtx.Ops)
-	paint.ColorOp{Color: mulAlpha(color, 64)}.Add(gtx.Ops)
-	paint.PaintOp{}.Add(gtx.Ops)
-	cl2.Pop()
+	paint.FillShape(gtx.Ops, mulAlpha(color, 64), clip.RRect{Rect: trackInactive, NE: rTrack, NW: rTrack, SE: rTrack, SW: rTrack}.Op(gtx.Ops))
 
-	// 3. Draw thumb
+	// 3. Draw thumb (rounded circle handle)
 	pt := image.Pt(thumbPos, sizeCross/2)
 	thumb := rect(
 		pt.X-tr, pt.Y-tr,
 		pt.X+tr, pt.Y+tr,
 	)
-	paint.FillShape(gtx.Ops, color, clip.Ellipse(thumb).Op(gtx.Ops))
+	paint.FillShape(gtx.Ops, color, clip.RRect{Rect: thumb}.Op(gtx.Ops))
 
 	return layout.Dimensions{Size: size}
 }
@@ -641,3 +607,300 @@ func disabledColor(c color.NRGBA) color.NRGBA {
 		A: uint8(uint32(c.A) * 128 / 255),
 	}
 }
+
+func (app *App) tabTextColor(i float32, th *material.Theme) color.NRGBA {
+	dist := float32(math.Abs(float64(app.tabAnimProgress - i)))
+	if dist < 0.5 {
+		return th.Palette.ContrastFg
+	}
+	if app.lightTheme {
+		return color.NRGBA{R: 0x66, G: 0x66, B: 0x66, A: 0xFF}
+	}
+	return color.NRGBA{R: 0x90, G: 0x90, B: 0x90, A: 0xFF}
+}
+
+func (app *App) layoutToolbar(gtx layout.Context, th *material.Theme) layout.Dimensions {
+	tabChanged := false
+	if app.tabClickModules.Clicked(gtx) {
+		if app.activeTab != 0 {
+			app.activeTab = 0
+			tabChanged = true
+		}
+	}
+	if app.tabClickConfig.Clicked(gtx) {
+		if app.activeTab != 1 {
+			app.activeTab = 1
+			tabChanged = true
+		}
+	}
+	if app.tabClickSettings.Clicked(gtx) {
+		if app.activeTab != 4 {
+			app.activeTab = 4
+			tabChanged = true
+		}
+	}
+
+	if tabChanged {
+		gtx.Execute(op.InvalidateCmd{})
+	}
+
+	// Calculate target index
+	var targetIdx float32
+	switch app.activeTab {
+	case 1:
+		targetIdx = 1.0
+	case 4:
+		targetIdx = 2.0
+	default:
+		targetIdx = 0.0
+	}
+
+	if app.tabAnimProgress != targetIdx {
+		speed := float32(0.2) // fast, responsive slide
+		diff := targetIdx - app.tabAnimProgress
+		if math.Abs(float64(diff)) < float64(speed) {
+			app.tabAnimProgress = targetIdx
+		} else {
+			if diff > 0 {
+				app.tabAnimProgress += speed
+			} else {
+				app.tabAnimProgress -= speed
+			}
+		}
+		gtx.Execute(op.InvalidateCmd{})
+	}
+
+	var children []layout.FlexChild
+
+	// 1. MODULES Tab
+	children = append(children, layout.Flexed(1.0, func(gtx layout.Context) layout.Dimensions {
+		return app.tabClickModules.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			textColor := app.tabTextColor(0, th)
+			return layoutTabBlockWithColor(gtx, th, "MODULES", textColor)
+		})
+	}))
+
+	// 2. CONFIG Tab
+	children = append(children, layout.Flexed(1.0, func(gtx layout.Context) layout.Dimensions {
+		return app.tabClickConfig.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			textColor := app.tabTextColor(1, th)
+			return layoutTabBlockWithColor(gtx, th, "CONFIG", textColor)
+		})
+	}))
+
+	// 3. SETTINGS Tab
+	children = append(children, layout.Flexed(1.0, func(gtx layout.Context) layout.Dimensions {
+		return app.tabClickSettings.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			textColor := app.tabTextColor(2, th)
+			return layoutTabBlockWithColor(gtx, th, "SETTINGS", textColor)
+		})
+	}))
+
+	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return layout.Stack{}.Layout(gtx,
+				// Background layer: Animated sliding capsule
+				layout.Expanded(func(gtx layout.Context) layout.Dimensions {
+					width := gtx.Constraints.Min.X
+					if width == 0 {
+						width = gtx.Constraints.Max.X
+					}
+					totalWidth := float32(width)
+					cellW := totalWidth / 3.0
+					left := app.tabAnimProgress * cellW
+
+					padding := gtx.Dp(4)
+					r := 0
+
+					capsuleRect := image.Rectangle{
+						Min: image.Pt(int(left)+padding, padding),
+						Max: image.Pt(int(left+cellW)-padding, gtx.Constraints.Min.Y-padding),
+					}
+
+					if capsuleRect.Max.X > capsuleRect.Min.X && capsuleRect.Max.Y > capsuleRect.Min.Y {
+						paint.FillShape(gtx.Ops, th.Palette.ContrastBg, clip.RRect{
+							Rect: capsuleRect,
+							NE: r, NW: r, SE: r, SW: r,
+						}.Op(gtx.Ops))
+					}
+					return layout.Dimensions{Size: gtx.Constraints.Min}
+				}),
+				// Foreground layer: Tab labels
+				layout.Stacked(func(gtx layout.Context) layout.Dimensions {
+					return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx, children...)
+				}),
+			)
+		}),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			d := image.Point{X: gtx.Constraints.Max.X, Y: gtx.Dp(2)}
+			defer clip.Rect{Max: d}.Push(gtx.Ops).Pop()
+			paint.Fill(gtx.Ops, th.Palette.ContrastBg)
+			return layout.Dimensions{Size: d}
+		}),
+	)
+}
+
+func layoutTabBlockWithColor(gtx layout.Context, th *material.Theme, label string, textColor color.NRGBA) layout.Dimensions {
+	gtx.Constraints.Min.X = gtx.Constraints.Max.X
+	return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		return layout.UniformInset(unit.Dp(12)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			lbl := material.Body2(th, label)
+			lbl.Font.Typeface = "monospace"
+			lbl.Font.Weight = font.Bold
+			lbl.Color = textColor
+			return lbl.Layout(gtx)
+		})
+	})
+}
+
+func layoutStatusPill(gtx layout.Context, th *material.Theme, isEnabled bool) layout.Dimensions {
+	text := "OFF"
+	bgCol := color.NRGBA{R: 0x1E, G: 0x29, B: 0x3B, A: 0xFF}
+	txtCol := color.NRGBA{R: 0x94, G: 0xA3, B: 0xB8, A: 0xFF}
+	
+	if isEnabled {
+		text = "ON"
+		bgCol = th.Palette.ContrastBg
+		txtCol = color.NRGBA{R: 0x00, G: 0x00, B: 0x00, A: 0xFF}
+	} else if th.Palette.Bg.R > 0xEE {
+		bgCol = color.NRGBA{R: 0xE2, G: 0xE8, B: 0xF0, A: 0xFF}
+		txtCol = color.NRGBA{R: 0x64, G: 0x74, B: 0x8B, A: 0xFF}
+	}
+
+	return layout.Stack{Alignment: layout.Center}.Layout(gtx,
+		layout.Expanded(func(gtx layout.Context) layout.Dimensions {
+			d := image.Rectangle{Max: gtx.Constraints.Min}
+			r := 0
+			paint.FillShape(gtx.Ops, bgCol, clip.RRect{Rect: d, NE: r, NW: r, SE: r, SW: r}.Op(gtx.Ops))
+			return layout.Dimensions{Size: gtx.Constraints.Min}
+		}),
+		layout.Stacked(func(gtx layout.Context) layout.Dimensions {
+			return layout.Inset{
+				Top:    unit.Dp(2),
+				Bottom: unit.Dp(2),
+				Left:   unit.Dp(8),
+				Right:  unit.Dp(8),
+			}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				lbl := material.Caption(th, text)
+				lbl.Font.Typeface = "monospace"
+				lbl.Font.Weight = font.Bold
+				lbl.Color = txtCol
+				return lbl.Layout(gtx)
+			})
+		}),
+	)
+}
+
+
+
+func (app *App) layoutConfigsTab(gtx layout.Context, th *material.Theme) layout.Dimensions {
+	return layout.UniformInset(unit.Dp(12)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				lbl := material.Body1(th, "FILES CONFIGURATION")
+				lbl.Font.Typeface = "monospace"
+				lbl.Font.Weight = font.Bold
+				lbl.Color = th.Palette.Fg
+				return lbl.Layout(gtx)
+			}),
+			layout.Rigid(layout.Spacer{Height: unit.Dp(12)}.Layout),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				if app.importConfigClick.Clicked(gtx) {
+					app.importConfig()
+				}
+				return layoutFullWidthButton(gtx, th, &app.importConfigClick, "Import config")
+			}),
+			layout.Rigid(layout.Spacer{Height: unit.Dp(8)}.Layout),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				if app.exportConfigClick.Clicked(gtx) {
+					app.exportConfig()
+				}
+				return layoutFullWidthButton(gtx, th, &app.exportConfigClick, "Export config")
+			}),
+			layout.Rigid(layout.Spacer{Height: unit.Dp(8)}.Layout),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				if app.resetConfigClick.Clicked(gtx) {
+					app.resetConfig()
+				}
+				return layoutFullWidthButton(gtx, th, &app.resetConfigClick, "Reset config")
+			}),
+		)
+	})
+}
+
+func (app *App) layoutSettingsTab(gtx layout.Context, th *material.Theme) layout.Dimensions {
+	return layout.UniformInset(unit.Dp(12)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				lbl := material.Body1(th, "SETTINGS")
+				lbl.Font.Typeface = "monospace"
+				lbl.Font.Weight = font.Bold
+				lbl.Color = th.Palette.Fg
+				return lbl.Layout(gtx)
+			}),
+			layout.Rigid(layout.Spacer{Height: unit.Dp(12)}.Layout),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				app.userConf.Lock()
+				currentVal := app.userConf.V.ShowErrors
+				app.userConf.Unlock()
+
+				if app.showErrorsClick.Clicked(gtx) {
+					currentVal = !currentVal
+					app.showErrors(currentVal, ActionCauseUserInput)
+					app.saveUserConfig()
+				}
+
+				labelText := "SHOW ERRORS: OFF"
+				var bgCol color.NRGBA
+				var txtCol color.NRGBA
+				if currentVal {
+					labelText = "SHOW ERRORS: ON"
+					bgCol = th.Palette.ContrastBg
+					txtCol = color.NRGBA{R: 0, G: 0, B: 0, A: 255}
+				} else {
+					if app.lightTheme {
+						bgCol = color.NRGBA{R: 0xE2, G: 0xE8, B: 0xF0, A: 0xFF}
+						txtCol = color.NRGBA{R: 0x64, G: 0x74, B: 0x8B, A: 0xFF}
+					} else {
+						bgCol = color.NRGBA{R: 0x1E, G: 0x29, B: 0x3B, A: 0xFF}
+						txtCol = color.NRGBA{R: 0x94, G: 0xA3, B: 0xB8, A: 0xFF}
+					}
+				}
+
+				gtx.Constraints.Min.X = gtx.Constraints.Max.X
+				btn := material.Button(th, &app.showErrorsClick, labelText)
+				btn.CornerRadius = unit.Dp(0)
+				btn.Background = bgCol
+				btn.Color = txtCol
+				btn.Font.Typeface = "monospace"
+				btn.Font.Weight = font.Bold
+				return btn.Layout(gtx)
+			}),
+			layout.Rigid(layout.Spacer{Height: unit.Dp(12)}.Layout),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				if app.toggleThemeClick.Clicked(gtx) {
+					app.lightTheme = !app.lightTheme
+					app.userConf.Lock()
+					app.userConf.V.LightTheme = app.lightTheme
+					app.userConf.Unlock()
+					app.saveUserConfig()
+					app.applyWindowsDarkMode()
+				}
+				label := "Switch to Dark Theme"
+				if !app.lightTheme {
+					label = "Switch to Light Theme"
+				}
+				return layoutFullWidthButton(gtx, th, &app.toggleThemeClick, label)
+			}),
+			layout.Rigid(layout.Spacer{Height: unit.Dp(12)}.Layout),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				if app.aboutClick.Clicked(gtx) {
+					app.showInfo("ABOUT", aboutMessage)
+				}
+				return layoutFullWidthButton(gtx, th, &app.aboutClick, "About app")
+			}),
+		)
+	})
+}
+
+

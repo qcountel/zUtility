@@ -8,7 +8,7 @@ import (
 	"github.com/something-that-is-cool/zutil/app/module"
 	"github.com/something-that-is-cool/zutil/app/module/modules/modulesutil"
 	"github.com/something-that-is-cool/zutil/pkg/e"
-	"github.com/something-that-is-cool/zutil/pkg/win"
+	win "github.com/something-that-is-cool/zutil/pkg/win"
 	"github.com/something-that-is-cool/zutil/pkg/win/mem"
 )
 

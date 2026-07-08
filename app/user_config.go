@@ -11,20 +11,22 @@ import (
 )
 
 type UserConfig struct {
-	Modules    map[string]module.Property `json:"modules"`
-	Binds      map[string]string          `json:"binds"` // module_id => char
-	CharBinds  map[string]string          `json:"-"`     // char => module_id
-	LightTheme bool                       `json:"light_theme"`
-	ShowErrors bool                       `json:"show_errors"`
+	Modules            map[string]module.Property `json:"modules"`
+	Binds              map[string]string          `json:"binds"` // module_id => char
+	CharBinds          map[string]string          `json:"-"`     // char => module_id
+	LightTheme         bool                       `json:"light_theme"`
+	ShowErrors         bool                       `json:"show_errors"`
+	UseClonedMinecraft bool                       `json:"use_cloned_minecraft"`
 }
 
 func DefaultUserConfig() *UserConfig {
 	return &UserConfig{
-		Modules:    make(map[string]module.Property),
-		Binds:      make(map[string]string),
-		CharBinds:  make(map[string]string),
-		LightTheme: false,
-		ShowErrors: true,
+		Modules:            make(map[string]module.Property),
+		Binds:              make(map[string]string),
+		CharBinds:          make(map[string]string),
+		LightTheme:         false,
+		ShowErrors:         true,
+		UseClonedMinecraft: false,
 	}
 }
 

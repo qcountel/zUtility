@@ -62,6 +62,12 @@ func (app *App) createZoomModule(proc *win.Process) module.Config {
 	conf := &modules.Zoom{Process: proc}
 	conf.Error = app.onError(conf.Identifier())
 	conf.OnToggle = app.onModuleToggled(conf.Identifier())
+	conf.GetModule = app.moduleByIDUnsafe
+	conf.GetBindKey = func() string {
+		app.userConf.Lock()
+		defer app.userConf.Unlock()
+		return app.userConf.V.Binds[conf.Identifier()]
+	}
 	return conf
 }
 

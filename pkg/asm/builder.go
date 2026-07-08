@@ -9,7 +9,7 @@ import (
 	"github.com/something-that-is-cool/zutil/pkg/win/mem"
 )
 
-var builderPool = sync.Pool{ // the pool itself is NOT currently required but when it will be required i will probably forget about it so ill make it now
+var builderPool = sync.Pool{
 	New: func() any {
 		return new(Builder)
 	},
@@ -49,13 +49,19 @@ func (b *Builder) Wildcard() *Builder {
 	return b
 }
 
-// X is alias to Wildcard.
 func (b *Builder) X() *Builder {
 	return b.Wildcard()
 }
 
 func (b *Builder) Raw(v ...byte) *Builder {
 	b.write(v...)
+	return b
+}
+
+func (b *Builder) RawStr(v string) *Builder {
+	if sig, err := mem.ParseSignature(v); err == nil {
+		b.write(sig.Data...)
+	}
 	return b
 }
 
@@ -107,11 +113,26 @@ func (b *Builder) MovMemsdRDX(offset byte, val float32) *Builder {
 	return b.Raw(MovMemsdRDX(offset, val)...)
 }
 
+func (b *Builder) DivssXmm(xmmIndex byte, reg Register) *Builder {
+	return b.Raw(DivssXmmMem64(xmmIndex, reg)...)
+}
+
+func (b *Builder) MulssXmm(xmmIndex byte, reg Register) *Builder {
+	return b.Raw(MulssXmmMem64(xmmIndex, reg)...)
+}
+
+func (b *Builder) AddssXmm(xmmIndex byte, reg Register) *Builder {
+	return b.Raw(AddssXmmMem64(xmmIndex, reg)...)
+}
+
+func (b *Builder) SubssXmm(xmmIndex byte, reg Register) *Builder {
+	return b.Raw(SubssXmmMem64(xmmIndex, reg)...)
+}
+
 func (b *Builder) Float(val float32) *Builder {
 	return b.Raw(LEFloat(val)...)
 }
 
-// Float64 is alias to Double.
 func (b *Builder) Float64(val float64) *Builder {
 	return b.Double(val)
 }

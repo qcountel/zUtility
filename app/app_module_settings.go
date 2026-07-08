@@ -40,10 +40,18 @@ func (app *App) layoutModuleOverlay(gtx layout.Context, th *material.Theme) layo
 			return layout.Stack{}.Layout(gtx,
 				layout.Expanded(func(gtx layout.Context) layout.Dimensions {
 					d := image.Rectangle{Max: gtx.Constraints.Min}
-					paint.FillShape(gtx.Ops, cardBg, clip.RRect{
-						Rect: d,
-						NE:   16, NW: 16, SE: 16, SW: 16,
-					}.Op(gtx.Ops))
+					paint.FillShape(gtx.Ops, cardBg, clip.Rect(d).Op())
+
+					// Thick border (2dp)
+					strokeWidth := gtx.Dp(2)
+					cl := clip.Stroke{
+						Path:  clip.RRect{Rect: d}.Path(gtx.Ops),
+						Width: float32(strokeWidth),
+					}.Op().Push(gtx.Ops)
+					paint.ColorOp{Color: th.Palette.ContrastBg}.Add(gtx.Ops)
+					paint.PaintOp{}.Add(gtx.Ops)
+					cl.Pop()
+
 					return layout.Dimensions{Size: gtx.Constraints.Min}
 				}),
 				layout.Stacked(func(gtx layout.Context) layout.Dimensions {
@@ -51,7 +59,8 @@ func (app *App) layoutModuleOverlay(gtx layout.Context, th *material.Theme) layo
 						return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 								return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-									titleLbl := material.Body1(th, strings.ToLower(m.Name())+" settings")
+									titleLbl := material.Body1(th, strings.ToUpper(m.Name())+" SETTINGS")
+									titleLbl.Font.Typeface = "monospace"
 									titleLbl.Font.Weight = font.Bold
 									return titleLbl.Layout(gtx)
 								})
@@ -59,6 +68,7 @@ func (app *App) layoutModuleOverlay(gtx layout.Context, th *material.Theme) layo
 							layout.Rigid(layout.Spacer{Height: unit.Dp(16)}.Layout),
 							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 								descLbl := material.Body2(th, m.Description())
+								descLbl.Font.Typeface = "monospace"
 								return descLbl.Layout(gtx)
 							}),
 							layout.Rigid(layout.Spacer{Height: unit.Dp(16)}.Layout),

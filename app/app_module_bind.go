@@ -47,10 +47,18 @@ func (app *App) layoutBindOverlay(gtx layout.Context, th *material.Theme) layout
 			return layout.Stack{}.Layout(gtx,
 				layout.Expanded(func(gtx layout.Context) layout.Dimensions {
 					d := image.Rectangle{Max: gtx.Constraints.Min}
-					paint.FillShape(gtx.Ops, cardBg, clip.RRect{
-						Rect: d,
-						NE:   16, NW: 16, SE: 16, SW: 16,
-					}.Op(gtx.Ops))
+					paint.FillShape(gtx.Ops, cardBg, clip.Rect(d).Op())
+
+					// Thick border (2dp)
+					strokeWidth := gtx.Dp(2)
+					cl := clip.Stroke{
+						Path:  clip.RRect{Rect: d}.Path(gtx.Ops),
+						Width: float32(strokeWidth),
+					}.Op().Push(gtx.Ops)
+					paint.ColorOp{Color: th.Palette.ContrastBg}.Add(gtx.Ops)
+					paint.PaintOp{}.Add(gtx.Ops)
+					cl.Pop()
+
 					return layout.Dimensions{Size: gtx.Constraints.Min}
 				}),
 				layout.Stacked(func(gtx layout.Context) layout.Dimensions {
@@ -58,7 +66,8 @@ func (app *App) layoutBindOverlay(gtx layout.Context, th *material.Theme) layout
 						return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 								return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-									titleLbl := material.Body1(th, "bind "+strings.ToLower(m.Name()))
+									titleLbl := material.Body1(th, "BIND "+strings.ToUpper(m.Name()))
+									titleLbl.Font.Typeface = "monospace"
 									titleLbl.Font.Weight = font.Bold
 									return titleLbl.Layout(gtx)
 								})
@@ -67,15 +76,18 @@ func (app *App) layoutBindOverlay(gtx layout.Context, th *material.Theme) layout
 							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 								return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
 									layout.Flexed(1.0, func(gtx layout.Context) layout.Dimensions {
-										curLbl := material.Body2(th, "current bind: "+app.currentBind(id))
+										curLbl := material.Body2(th, "CURRENT BIND: "+app.currentBind(id))
+										curLbl.Font.Typeface = "monospace"
 										return curLbl.Layout(gtx)
 									}),
 									layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 										if app.resetBindClick.Clicked(gtx) {
 											app.resetBind(id)
+											app.showBindOverlay = false
 										}
-										btn := material.Button(th, &app.resetBindClick, "Reset")
-										btn.CornerRadius = unit.Dp(6)
+										btn := material.Button(th, &app.resetBindClick, "RESET")
+										btn.CornerRadius = unit.Dp(0)
+										btn.Font.Typeface = "monospace"
 										return btn.Layout(gtx)
 									}),
 								)
@@ -153,6 +165,9 @@ func (app *App) resetBind(id string) {
 
 func (app *App) bindToggleModule(id string, m module.Module) func() {
 	return func() {
+		if id == "zoom" {
+			return
+		}
 		if !cursor.Focused() {
 			return
 		}

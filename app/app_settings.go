@@ -3,17 +3,8 @@ package app
 import (
 	"encoding/json"
 	"fmt"
-	"image"
-	"image/color"
 	"io"
 	"os"
-
-	"gioui.org/font"
-	"gioui.org/layout"
-	"gioui.org/op/clip"
-	"gioui.org/op/paint"
-	"gioui.org/unit"
-	"gioui.org/widget/material"
 
 	"github.com/something-that-is-cool/zutil/app/module"
 	"github.com/something-that-is-cool/zutil/internal/misc"
@@ -32,116 +23,7 @@ var aboutMessage = misc.JoinNewLine(
 	"Copyright (C) 2026 Ivan Z. All rights reserved.",
 )
 
-func (app *App) layoutSettingsOverlay(gtx layout.Context, th *material.Theme) layout.Dimensions {
-	gtx.Constraints.Min = gtx.Constraints.Max
 
-	return layout.Stack{Alignment: layout.Center}.Layout(gtx,
-		layout.Stacked(func(gtx layout.Context) layout.Dimensions {
-			return app.blockerClick.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				backdropColor := color.NRGBA{R: 0, G: 0, B: 0, A: 160}
-				paint.Fill(gtx.Ops, backdropColor)
-				return layout.Dimensions{Size: gtx.Constraints.Min}
-			})
-		}),
-		layout.Stacked(func(gtx layout.Context) layout.Dimensions {
-			cardBg := app.themeCardBg()
-
-			gtx.Constraints.Min.X = gtx.Dp(320)
-			gtx.Constraints.Max.X = gtx.Dp(320)
-
-			return layout.Stack{}.Layout(gtx,
-				layout.Expanded(func(gtx layout.Context) layout.Dimensions {
-					d := image.Rectangle{Max: gtx.Constraints.Min}
-					paint.FillShape(gtx.Ops, cardBg, clip.RRect{
-						Rect: d,
-						NE:   16, NW: 16, SE: 16, SW: 16,
-					}.Op(gtx.Ops))
-					return layout.Dimensions{Size: gtx.Constraints.Min}
-				}),
-				layout.Stacked(func(gtx layout.Context) layout.Dimensions {
-					return layout.UniformInset(unit.Dp(20)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-						return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-								return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-									titleLbl := material.Body1(th, "Settings")
-									titleLbl.Font.Weight = font.Bold
-									return titleLbl.Layout(gtx)
-								})
-							}),
-							layout.Rigid(layout.Spacer{Height: unit.Dp(16)}.Layout),
-							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-								if app.importConfigClick.Clicked(gtx) {
-									app.importConfig()
-								}
-								return layoutFullWidthButton(gtx, th, &app.importConfigClick, "Import config")
-							}),
-							layout.Rigid(layout.Spacer{Height: unit.Dp(12)}.Layout),
-							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-								if app.exportConfigClick.Clicked(gtx) {
-									app.exportConfig()
-								}
-								return layoutFullWidthButton(gtx, th, &app.exportConfigClick, "Export config")
-							}),
-							layout.Rigid(layout.Spacer{Height: unit.Dp(12)}.Layout),
-							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-								if app.resetConfigClick.Clicked(gtx) {
-									app.resetConfig()
-								}
-								return layoutFullWidthButton(gtx, th, &app.resetConfigClick, "Reset config")
-							}),
-							layout.Rigid(layout.Spacer{Height: unit.Dp(12)}.Layout),
-							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-								app.showErrorsCheck.Value = app.userConf.V.ShowErrors
-								cb := material.CheckBox(th, &app.showErrorsCheck, "Show errors")
-								dims := cb.Layout(gtx)
-								if app.showErrorsCheck.Value != app.userConf.V.ShowErrors {
-									app.showErrors(app.showErrorsCheck.Value, ActionCauseUserInput)
-								}
-								return dims
-							}),
-							layout.Rigid(layout.Spacer{Height: unit.Dp(12)}.Layout),
-							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-								if app.toggleThemeClick.Clicked(gtx) {
-									app.lightTheme = !app.lightTheme
-									app.userConf.Lock()
-									app.userConf.V.LightTheme = app.lightTheme
-									app.userConf.Unlock()
-									app.applyWindowsDarkMode()
-								}
-								label := "Switch to Light Theme"
-								if app.lightTheme {
-									label = "Switch to Dark Theme"
-								}
-								return layoutFullWidthButton(gtx, th, &app.toggleThemeClick, label)
-							}),
-							layout.Rigid(layout.Spacer{Height: unit.Dp(20)}.Layout),
-							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-								return layout.Flex{Axis: layout.Horizontal}.Layout(gtx,
-									layout.Flexed(0.5, func(gtx layout.Context) layout.Dimensions {
-										return layout.Inset{Right: unit.Dp(6)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-											if app.aboutClick.Clicked(gtx) {
-												app.showInfo("About", aboutMessage)
-											}
-											return layoutFullWidthButton(gtx, th, &app.aboutClick, "About")
-										})
-									}),
-									layout.Flexed(0.5, func(gtx layout.Context) layout.Dimensions {
-										return layout.Inset{Left: unit.Dp(6)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-											if app.closeOverlayClick.Clicked(gtx) {
-												app.showSettingsOverlay = false
-											}
-											return layoutFullWidthButton(gtx, th, &app.closeOverlayClick, "Close")
-										})
-									}),
-								)
-							}),
-						)
-					})
-				}),
-			)
-		}),
-	)
-}
 
 func (app *App) importConfig() {
 	filename, err := dialog.File().Filter("JSON Config", "json").Load()
