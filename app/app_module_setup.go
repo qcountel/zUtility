@@ -11,7 +11,7 @@ import (
 
 func (app *App) setupModules(proc *win.Process) []module.Config {
 	return []module.Config{
-		app.createControllerSensitivityModule(proc),
+		app.createSensitivityModule(proc),
 		app.createNoDynamicFovModule(proc),
 		app.createNoHurtCamModule(proc),
 		app.createAutoSprintModule(proc),
@@ -27,8 +27,8 @@ func (app *App) setupModules(proc *win.Process) []module.Config {
 	}
 }
 
-func (app *App) createControllerSensitivityModule(proc *win.Process) module.Config {
-	conf := &modules.ControllerSensitivity{Process: proc}
+func (app *App) createSensitivityModule(proc *win.Process) module.Config {
+	conf := &modules.Sensitivity{Process: proc}
 	conf.Error = app.onError(conf.Identifier())
 	conf.OnValueChanged = onModuleValueChanged[float64](app, conf.Identifier())
 	return conf
